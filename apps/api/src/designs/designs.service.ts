@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { buildTemplate, summarize } from '@syslab/sim';
+import { SpecError, buildDesign } from '@syslab/spec';
 import type {
   CreateDesignInput, Design, DesignDoc, DesignSummary, ShareState, UpdateDesignInput, UpdateDesignResult,
 } from '@syslab/types';
@@ -37,6 +38,34 @@ export class DesignsService {
     const name = input.name?.trim() || t.name;
     const row = await this.repo.create(ownerId, name, json(t.doc), json(summarize(t.doc)));
     return toDesign(row);
+  }
+
+  /** Build a design from an AI-written spec; spec problems come back as a 400 with every issue listed. */
+  async importSpec(ownerId: string, spec: unknown): Promise<Design & { warnings: string[] }> {
+    try {
+      const built = buildDesign(spec);
+      return { ...(await this.createFromDoc(ownerId, built.name, built.doc)), warnings: built.warnings };
+    } catch (e) {
+      if (e instanceof SpecError) throw new BadRequestException({ message: e.message, issues: e.issues });
+      throw e;
+    }
+  }
+
+  /** Save a ready-made document as a new design (used by AI imports and the MCP server). */
+  async createFromDoc(ownerId: string, name: string, doc: DesignDoc): Promise<Design> {
+    this.assertValidDoc(doc);
+    const row = await this.repo.create(ownerId, name.trim() || 'Untitled design', json(doc), json(summarize(doc)));
+    return toDesign(row);
+  }
+
+  /**
+   * Overwrite a design's name and document in one step, without a revision check (an AI rewrote
+   * it). An editor tab that still has the old version open gets a conflict on its next save.
+   */
+  async replaceFromSpec(ownerId: string, id: string, name: string, doc: DesignDoc): Promise<Design> {
+    this.assertValidDoc(doc);
+    if (!(await this.repo.exists(id, ownerId))) throw new NotFoundException('Design not found');
+    return toDesign(await this.repo.replaceDoc(id, ownerId, json(doc), json(summarize(doc)), name.trim() || 'Untitled design'));
   }
 
   async duplicate(ownerId: string, id: string): Promise<Design> {

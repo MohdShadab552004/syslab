@@ -62,10 +62,10 @@ export class DesignsRepository {
   }
 
   /** Unconditional doc replace (used by version restore). */
-  replaceDoc(id: string, ownerId: string, doc: Prisma.InputJsonValue, summary: Prisma.InputJsonValue): Promise<DesignRecord> {
+  replaceDoc(id: string, ownerId: string, doc: Prisma.InputJsonValue, summary: Prisma.InputJsonValue, name?: string): Promise<DesignRecord> {
     return this.prisma.design.update({
       where: { id, ownerId },
-      data: { doc, summary, revision: { increment: 1 } },
+      data: { doc, summary, revision: { increment: 1 }, ...(name !== undefined && { name }) },
       select: designSelect,
     });
   }
