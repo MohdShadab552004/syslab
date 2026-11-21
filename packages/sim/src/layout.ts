@@ -63,6 +63,7 @@ export function segment(a: Point, b: Point): Segment {
 /** People drawn on the users platform, more as traffic grows. */
 export function crowd(users: number): { x: number; y: number; c: string }[] {
   const cols = ['#a9c8ec', '#f7c99f', '#aee0ca', '#cbc7f0', '#f0dc9b', '#f2b8c6'];
+  if (users < 1) return []; // nobody online: an empty platform
   const n = Math.max(3, Math.min(15, Math.round(Math.log10(Math.max(users, 1)) * 3 - 6)));
   const slots: Point[] = [];
   for (let r = -1; r <= 1; r++) for (let c = -2; c <= 2; c++) slots.push({ x: 90 + 14 * c + 14 * r, y: 60 - 7 * c + 7 * r });

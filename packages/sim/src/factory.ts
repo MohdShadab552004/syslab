@@ -53,7 +53,7 @@ export function blankDoc(over: Partial<DesignDoc> = {}): DesignDoc {
 }
 
 export function usersFromRequirements(r: Requirements): number {
-  return Math.max(1, Math.round((r.dau * r.peak) / 100));
+  return Math.max(0, Math.round((r.dau * r.peak) / 100));
 }
 
 export function dbConfig(n: DesignNode): DbConfig {
