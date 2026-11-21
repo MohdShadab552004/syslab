@@ -52,6 +52,20 @@ Capacity from machine size and technology (or your measured numbers), latency fr
 The model, its formulas and its tests: [docs/simulation.md](docs/simulation.md). Run the engine's tests
 with `pnpm test`.
 
+## Tests and CI
+
+Vitest runs every package from source in one go (projects `sim`, `spec`, `web`, `api`):
+
+| Command | What it does |
+|---|---|
+| `pnpm test` | all tests |
+| `pnpm test:coverage` | all tests + coverage; fails below 95% (lines, statements, functions, branches) |
+| `pnpm vitest --project web` | one project, watch mode |
+
+Coverage covers the logic code: the simulation engine, the spec package, the web app's `lib/`, editor store and inspector, and the API. React components are checked in the browser. The HTML report lands in `coverage/index.html`.
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs install, build, typecheck and `pnpm test:coverage` on every pull request and on pushes to `develop` and `main`, and posts the coverage table in the run summary.
+
 ## Use SysLab from any AI (MCP)
 
 SysLab exposes a Model Context Protocol server at `/api/mcp`, so Claude, Cursor, VS Code, Gemini CLI and

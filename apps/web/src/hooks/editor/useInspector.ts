@@ -159,7 +159,7 @@ export interface MultiInspectorView {
 }
 
 /* ---------- builders ---------- */
-function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions): NodeInspectorView {
+export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions): NodeInspectorView {
   const k = KINDS[n.kind], id = n.id, ld = sim.load[id] ?? 0;
   const hot = !n.down && isOver(ld), busy = !n.down && ld >= 0.7;
   const auto = isHorizontalAuto(n), autoV = isVerticalAuto(n), as = n.autoscale;
@@ -390,7 +390,7 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
   };
 }
 
-function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: EditorActions): EdgeInspectorView {
+export function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: EditorActions): EdgeInspectorView {
   const from = sim.byId.get(e.from)!, to = sim.byId.get(e.to)!;
   // fan-out connections (calls per request) take no part in the weighted split
   const sumW = doc.edges.filter((x) => x.from === e.from && sim.byId.has(x.to) && !((x.calls ?? 0) > 0)).reduce((s, x) => s + (x.weight || 1), 0) || 1;
@@ -488,7 +488,11 @@ export function useInspector(): InspectorView | null {
         group: {
           label: g.label, onRename: (v) => a.updateGroup(g.id, { label: v }),
           collapsed: !!g.collapsed,
-          contents: (() => { const m = groupMembers(doc, g); return `${m.nodes.length} components · ${m.notes.length} notes${m.groups.length ? ` · ${m.groups.length} groups` : ''}`; })(),
+          contents: (() => {
+            const m = groupMembers(doc, g);
+            const pl = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+            return `${pl(m.nodes.length, 'component')} · ${pl(m.notes.length, 'note')}${m.groups.length ? ` · ${pl(m.groups.length, 'group')}` : ''}`;
+          })(),
           onToggleCollapse: () => a.toggleGroupCollapsed(g.id),
           colors: (Object.keys(GROUP_COLORS) as (keyof typeof GROUP_COLORS)[]).map((c) => ({
             key: c, name: GROUP_COLORS[c].name, swatch: GROUP_COLORS[c].swatch, active: g.color === c, onSelect: () => a.setGroupColor(g.id, c),

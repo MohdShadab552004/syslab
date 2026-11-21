@@ -100,7 +100,19 @@ export function layout(nodes: DesignNode[], edges: DesignEdge[], groups: string[
     groups.forEach((g, i) => { if (g.includes(n.id) && (best < 0 || g.length < groups[best].length)) best = i; });
     band.set(n.id, best);
   }
-  const bands = [-1, ...groups.map((_, i) => i)].filter((b) => nodes.some((n) => band.get(n.id) === b));
+  // Families: a top-level group plus every group nested inside it, in that order. A family's
+  // bands are laid out together so the outer box never wraps an unrelated group.
+  const inside = (j: number, i: number) => i !== j && groups[j].length < groups[i].length && groups[j].every((id) => groups[i].includes(id));
+  const parentOf = (j: number) => {
+    let best = -1;
+    groups.forEach((_, i) => { if (inside(j, i) && (best < 0 || groups[i].length < groups[best].length)) best = i; });
+    return best;
+  };
+  const families: number[][] = [[-1]];
+  const visit = (i: number, fam: number[]) => { fam.push(i); groups.forEach((_, j) => { if (parentOf(j) === i) visit(j, fam); }); };
+  groups.forEach((_, i) => { if (parentOf(i) < 0) { const fam: number[] = []; visit(i, fam); families.push(fam); } });
+  const hasNodes = (b: number) => nodes.some((n) => band.get(n.id) === b);
+  const bands = families.flat().filter(hasNodes);
   const maxLevel = Math.max(0, ...level.values());
 
   // order inside each column: by band, then by the average position of the callers
@@ -138,23 +150,37 @@ export function layout(nodes: DesignNode[], edges: DesignEdge[], groups: string[
   // Inside a band each column's stack is centred.
   const placed = new Map<string, Placed>();
   const skyline = columns.map(() => ORIGIN.y);
-  for (const b of bands) {
-    const stacks = columns.map((col) => chunks(col.filter((id) => band.get(id) === b)));
-    const used = stacks.map((parts, L) => (parts.length ? L : -1)).filter((L) => L >= 0);
-    const lo = Math.min(...used), hi = Math.max(...used);
-    const bandTop = Math.max(...skyline.slice(lo, hi + 1));
-    const heightOf = (ids: string[]) => ids.reduce((s, id) => s + ext.get(id)!.top + ext.get(id)!.bottom, 0) + Math.max(0, ids.length - 1) * ROW_GAP;
-    const bandH = Math.max(0, ...stacks.flat().map(heightOf));
-    stacks.forEach((parts, L) => parts.forEach((ids, sc) => {
-      let y = bandTop + (bandH - heightOf(ids)) / 2;
-      for (const id of ids) {
-        const e = ext.get(id)!, n = nodes.find((m) => m.id === id)!, k = KINDS[n.kind];
-        const ax = colLeft[L] + sc * (nodeW[L] + SUB_GAP) + e.left, ay = y + e.top;
-        placed.set(id, { x: Math.round(ax / 10) * 10, y: Math.round(ay / 10) * 10, w: k.w, h: k.h, ...e });
-        y += e.top + e.bottom + ROW_GAP;
-      }
-    }));
-    for (let L = lo; L <= hi; L++) skyline[L] = bandTop + bandH + BAND_GAP;
+  const stacksOf = (b: number) => columns.map((col) => chunks(col.filter((id) => band.get(id) === b)));
+  const colsOf = (b: number) => stacksOf(b).map((parts, L) => (parts.length ? L : -1)).filter((L) => L >= 0);
+  for (const fam of families) {
+    const famBands = fam.filter(hasNodes);
+    if (!famBands.length) continue;
+    const famCols = famBands.flatMap(colsOf);
+    const flo = Math.min(...famCols), fhi = Math.max(...famCols);
+    // a group family starts below everything already in any of its columns
+    const famTop = fam[0] < 0 ? ORIGIN.y : Math.max(...skyline.slice(flo, fhi + 1));
+    let famBottom = famTop;
+    for (const b of famBands) {
+      const stacks = stacksOf(b);
+      const used = colsOf(b);
+      const lo = Math.min(...used), hi = Math.max(...used);
+      const bandTop = Math.max(famTop, ...skyline.slice(lo, hi + 1));
+      const heightOf = (ids: string[]) => ids.reduce((s, id) => s + ext.get(id)!.top + ext.get(id)!.bottom, 0) + Math.max(0, ids.length - 1) * ROW_GAP;
+      const bandH = Math.max(0, ...stacks.flat().map(heightOf));
+      stacks.forEach((parts, L) => parts.forEach((ids, sc) => {
+        let y = bandTop + (bandH - heightOf(ids)) / 2;
+        for (const id of ids) {
+          const e = ext.get(id)!, n = nodes.find((m) => m.id === id)!, k = KINDS[n.kind];
+          const ax = colLeft[L] + sc * (nodeW[L] + SUB_GAP) + e.left, ay = y + e.top;
+          placed.set(id, { x: Math.round(ax / 10) * 10, y: Math.round(ay / 10) * 10, w: k.w, h: k.h, ...e });
+          y += e.top + e.bottom + ROW_GAP;
+        }
+      }));
+      for (let L = lo; L <= hi; L++) skyline[L] = bandTop + bandH + BAND_GAP;
+      famBottom = Math.max(famBottom, bandTop + bandH + BAND_GAP);
+    }
+    // reserve the family's whole column range (its outer box covers it); ungrouped nodes have no box
+    if (fam[0] >= 0) for (let L = flo; L <= fhi; L++) skyline[L] = famBottom;
   }
   const bottom = Math.max(...skyline);
 

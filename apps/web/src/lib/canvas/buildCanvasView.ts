@@ -480,8 +480,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       const state = !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next';
       const pts = view.route === 'elbow' ? elbowRoute(a, b, 0).pts : [a, b];
       for (let j = 0; j < pts.length - 1; j++) {
+        if (Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].y - pts[j].y) < 0.5) continue;
         const s = segment(pts[j], pts[j + 1]);
-        if (s.len < 0.5) continue;
         flow.push({
           key: `fs-${i}-${j}`, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), state,
           token: !!flowPlay && i === idx && j === Math.floor((pts.length - 1) / 2),

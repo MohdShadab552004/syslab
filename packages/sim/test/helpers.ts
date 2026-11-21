@@ -1,8 +1,9 @@
-import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
-/** The built engine (tests run against dist, exactly what the web app and the API import). */
-export const S = require('../dist/index.js');
+
+
+/** The engine, from source. */
+import * as engine from '../src/index';
+export const S: any = engine;
 
 /**
  * Small design builder:

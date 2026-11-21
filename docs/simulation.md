@@ -123,13 +123,13 @@ MongoDB, Cassandra and DynamoDB have no such small cap.
 pnpm test
 ```
 
-- [`behavior.test.mjs`](../packages/sim/test/behavior.test.mjs) checks traffic, caches, load
+- [`behavior.test.ts`](../packages/sim/test/behavior.test.ts) checks traffic, caches, load
   balancers, autoscaling and queues.
-- [`physics.test.mjs`](../packages/sim/test/physics.test.mjs) checks Erlang C against textbook values,
+- [`physics.test.ts`](../packages/sim/test/physics.test.ts) checks Erlang C against textbook values,
   plus technologies, measured numbers, fan-out, connections, retries and breakers.
-- [`golden.test.mjs`](../packages/sim/test/golden.test.mjs) locks the numbers of every template at
+- [`golden.test.ts`](../packages/sim/test/golden.test.ts) locks the numbers of every template at
   0.5× / 1× / 3× traffic. When a physics change is intended, regenerate them:
-  `UPDATE_GOLDEN=1 pnpm --filter @syslab/sim test`, and review the diff of `golden.json`.
+  `UPDATE_GOLDEN=1 pnpm vitest run --project sim`, and review the diff of `golden.json`.
 
 ## Limits (what is still simplified)
 

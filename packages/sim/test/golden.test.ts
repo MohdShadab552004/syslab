@@ -3,11 +3,11 @@
  * producing the same results. A physics change that moves them shows up here as a diff.
  * When the change is intended, regenerate:  UPDATE_GOLDEN=1 pnpm --filter @syslab/sim test
  */
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { S, run } from './helpers.mjs';
+import { S, run } from './helpers';
 
 const FILE = fileURLToPath(new URL('./golden.json', import.meta.url));
 const r3 = (x) => (Number.isFinite(x) ? Math.round(x * 1000) / 1000 : String(x));

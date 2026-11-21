@@ -20,8 +20,9 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
   const label = new Map<string, string>();
   const used = new Set<string>();
   for (const n of doc.nodes) {
-    let l = n.label.trim() || KINDS[n.kind].name;
-    for (let i = 2; used.has(l.toLowerCase()); i++) l = `${n.label} (${i})`;
+    const base = n.label.trim() || KINDS[n.kind].name;
+    let l = base;
+    for (let i = 2; used.has(l.toLowerCase()); i++) l = `${base} (${i})`;
     used.add(l.toLowerCase());
     label.set(n.id, l);
   }

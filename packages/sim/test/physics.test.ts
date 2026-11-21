@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { S, design, run } from './helpers.mjs';
+import { S, design, run } from './helpers';
 
 test('Erlang C matches textbook values', () => {
   // M/M/1: P(wait) = ρ

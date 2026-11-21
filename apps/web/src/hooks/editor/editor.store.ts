@@ -670,7 +670,7 @@ function createActions(set: Set, get: Get) {
       if (!clip) return false;
       clipboard = clip; pasteCount = 0;
       const n = clip.nodes.length + clip.groups.length + clip.notes.length;
-      if (n > 1) toast(`Copied ${n} items${clip.edges.length ? ` + ${clip.edges.length} connections` : ''}`);
+      if (n > 1) toast(`Copied ${n} items${clip.edges.length ? ` + ${clip.edges.length} connection${clip.edges.length === 1 ? '' : 's'}` : ''}`);
       return true;
     },
     cutSelection() {
