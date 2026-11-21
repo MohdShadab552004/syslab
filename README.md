@@ -45,6 +45,12 @@ The repo ships a Render Blueprint (`render.yaml`) for the API and the web app; P
 Free Render services sleep after 15 idle minutes, so the first request after a pause is slow.
 There is no real login yet: everyone who opens the site acts as the same dev user.
 
+## Use SysLab from any AI (MCP)
+
+SysLab exposes a Model Context Protocol server at `/api/mcp`, so Claude, Cursor, VS Code, Gemini CLI and
+other MCP apps can create, read and load-test designs from a name-based spec. Setup, tools and the spec
+format: [docs/mcp.md](docs/mcp.md).
+
 ## Architecture rules
 
 ### Frontend (`apps/web/src`)

@@ -4,6 +4,7 @@ import { CreateDesignDto } from './dto/create-design.dto';
 import { UpdateDesignDto } from './dto/update-design.dto';
 import { UpdateShareDto } from './dto/share.dto';
 import { ListDesignsQuery } from './dto/list-designs.query';
+import { ImportDesignDto } from './dto/import-design.dto';
 import { CurrentUser, type AuthUser } from '../common/auth/current-user.decorator';
 import { Public } from '../common/auth/public.decorator';
 
@@ -19,6 +20,12 @@ export class DesignsController {
   @Post('designs')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateDesignDto) {
     return this.designs.create(user.id, dto);
+  }
+
+  /** Create a design from an AI-written spec (same format as the MCP create_design tool). */
+  @Post('designs/import')
+  importSpec(@CurrentUser() user: AuthUser, @Body() dto: ImportDesignDto) {
+    return this.designs.importSpec(user.id, dto.spec);
   }
 
   @Get('designs/:id')
