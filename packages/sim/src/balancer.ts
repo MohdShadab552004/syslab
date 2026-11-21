@@ -11,6 +11,8 @@ export interface Backend {
   cap: number;
   /** base latency of the backend, ms (for least connections) */
   lat: number;
+  /** concurrent workers of one replica (for least connections) */
+  workers: number;
   /** connection weight (weighted round robin) */
   weight: number;
 }
@@ -71,9 +73,8 @@ function ringShares(bs: Backend[], vnodes: number): number[] {
  * and latency grows as a server runs hot. The LB keeps connections equal, so we solve for
  * the split where rps_i × latency_i is the same on every backend.
  */
-function leastConnShares(bs: Backend[], sent: number, congestion: (load: number) => number): number[] {
-  const conns = (rps: number, b: Backend) =>
-    rps * b.lat * (Number.isFinite(b.cap) && b.cap > 0 ? congestion(rps / b.cap) : 1);
+function leastConnShares(bs: Backend[], sent: number, latency: (b: Backend, rps: number) => number): number[] {
+  const conns = (rps: number, b: Backend) => rps * latency(b, rps);
   /** rps a backend takes when its connection count is K (conns is increasing in rps) */
   const rpsAt = (b: Backend, K: number) => {
     if (conns(sent, b) <= K) return sent;
@@ -94,14 +95,14 @@ function leastConnShares(bs: Backend[], sent: number, congestion: (load: number)
 
 /** Fraction of `sent` traffic each backend receives. Shares sum to 1 (or are empty). */
 export function balance(
-  algo: LbAlgorithm, bs: Backend[], sent: number, vnodes: number, congestion: (load: number) => number,
+  algo: LbAlgorithm, bs: Backend[], sent: number, vnodes: number, latency: (b: Backend, rps: number) => number,
 ): number[] {
   if (!bs.length) return [];
   if (algo === 'wrr') {
     const sum = bs.reduce((s, b) => s + b.weight, 0);
     return bs.map((b) => (sum > 0 ? b.weight / sum : 1 / bs.length));
   }
-  if (algo === 'lc') return sent > 0 ? leastConnShares(bs, sent, congestion) : bs.map(() => 1 / bs.length);
+  if (algo === 'lc') return sent > 0 ? leastConnShares(bs, sent, latency) : bs.map(() => 1 / bs.length);
   if (algo === 'hash') return ringShares(bs, Math.max(1, Math.round(vnodes)));
   return bs.map(() => 1 / bs.length);
 }

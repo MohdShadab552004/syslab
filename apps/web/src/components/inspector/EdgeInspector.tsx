@@ -1,4 +1,4 @@
-import { Button, Card, Hint, ICON, OptionGroup, Row, SectionLabel, SelectField, Stepper, TextField } from '@/components/ui';
+import { Button, Card, Hint, ICON, OptionGroup, Row, SectionLabel, SelectField, Stepper, Switch, TextField } from '@/components/ui';
 import type { EdgeInspectorView } from '@/hooks/editor/useInspector';
 
 export function EdgeInspector({ v }: { v: EdgeInspectorView }) {
@@ -23,10 +23,26 @@ export function EdgeInspector({ v }: { v: EdgeInspectorView }) {
       <Card>
         <div className="row"><SectionLabel>Traffic weight</SectionLabel><Stepper label="traffic weight" {...v.weight} /></div>
         {v.weightNote && <Hint>{v.weightNote}</Hint>}
+        {v.calls && (
+          <>
+            <div className="flab">Calls per request</div>
+            <OptionGroup options={v.calls} />
+            <Hint>Split: the caller&apos;s traffic is shared between its connections. 1×, 2×…: every request makes that many calls here (fan-out), so this target gets all of it.</Hint>
+          </>
+        )}
         <Row label="Share" value={v.share} />
         <Row label="Carrying" value={v.rps} />
         <Row label="In the P95 path" value={v.onSlowPath} />
       </Card>
+      {v.resilience && (
+        <Card>
+          <div className="row"><SectionLabel>Failure handling</SectionLabel><span className={v.resilience.bad ? 'v bad' : 'v'}>{v.resilience.state}</span></div>
+          <div className="flab">Retries</div>
+          <OptionGroup options={v.resilience.retries} />
+          <div className="row"><span className="k">Circuit breaker</span><Switch on={v.resilience.breaker.on} onToggle={v.resilience.breaker.onToggle} label="Toggle circuit breaker" /></div>
+          <Hint>{v.resilience.hint}</Hint>
+        </Card>
+      )}
       <div className="actions">
         <Button icon={ICON.reverse} onClick={v.onReverse}>Reverse</Button>
         <Button variant="danger" onClick={v.onDelete}>Delete</Button>

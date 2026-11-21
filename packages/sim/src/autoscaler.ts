@@ -108,14 +108,52 @@ export function stepCaches(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<
   return changed ? next : null;
 }
 
-/** Everything that changes with time, in one tick: autoscaling, queue backlogs and cache contents. */
+/**
+ * What each node dropped this second, remembered for the next one: callers with retries send
+ * more attempts to a node that is failing, which is how a retry storm builds up.
+ */
+export function stepFailures(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<string, number> | null {
+  const next: Record<string, number> = {};
+  let changed = false;
+  for (const n of doc.nodes) {
+    const f = sim.dropFrac[n.id] ?? 0, cur = rt.fail?.[n.id] ?? 0;
+    if (f > 0.001) next[n.id] = f;
+    if (Math.abs(f - cur) > 0.002) changed = true;
+  }
+  return changed ? next : null;
+}
+
+/** seconds a tripped circuit breaker stays open before it lets calls through again */
+export const BREAKER_OPEN_S = 10;
+/** a breaker trips when its target drops more than this share of requests */
+export const BREAKER_TRIP = 0.5;
+
+/** Circuit breakers: trip when the target fails, stay open for a while, then try again. */
+export function stepBreakers(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<string, number> | null {
+  const next: Record<string, number> = {};
+  let changed = false;
+  for (const e of doc.edges) {
+    if (!e.breaker) continue;
+    const cur = rt.breaker?.[e.id] ?? 0;
+    const v = cur > 0 ? cur - 1 : (sim.dropFrac[e.to] ?? 0) > BREAKER_TRIP && (sim.edgeRps[e.id] ?? 0) > 0 ? BREAKER_OPEN_S : 0;
+    if (v > 0) next[e.id] = v;
+    if (v !== cur) changed = true;
+  }
+  return changed ? next : null;
+}
+
+/** Everything that changes with time, in one tick: autoscaling, queues, caches, retries, breakers. */
 export function stepRuntime(doc: DesignDoc, sim: SimResult, rt: Runtime, now: number): { runtime: Runtime; events: ScaleEvent[] } | null {
   const auto = stepAutoscaler(doc, sim, rt, now);
   const q = stepQueues(doc, sim, rt);
   const c = stepCaches(doc, sim, rt);
-  if (!auto && !q && !c) return null;
+  const f = stepFailures(doc, sim, rt);
+  const b = stepBreakers(doc, sim, rt);
+  if (!auto && !q && !c && !f && !b) return null;
   let runtime = auto ? auto.runtime : rt;
   if (q) runtime = { ...runtime, qDepth: q };
   if (c) runtime = { ...runtime, cacheHit: c };
+  if (f) runtime = { ...runtime, fail: f };
+  if (b) runtime = { ...runtime, breaker: b };
   return { runtime, events: auto?.events ?? [] };
 }

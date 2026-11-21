@@ -86,7 +86,11 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       op: cn.carries ?? 'both',
       weight: cn.weight ?? 1,
       route: cn.route ?? '',
+      ...(cn.callsPerRequest && { calls: cn.callsPerRequest }),
+      ...(cn.retries && { retries: cn.retries }),
+      ...(cn.circuitBreaker && { breaker: true }),
     }));
+    if ((cn.callsPerRequest || cn.retries || cn.circuitBreaker) && (a.kind === 'lb' || a.kind === 'queue')) warnings.push(`callsPerRequest / retries / circuitBreaker on ${cn.from} → ${cn.to} are ignored: a ${a.kind === 'lb' ? 'load balancer' : 'queue'} decides how traffic moves.`);
   });
 
   // ---- groups, flows, notes (references only for now) ----
@@ -127,11 +131,16 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
         ...(c.database.syncReplication != null && { sync: c.database.syncReplication }),
         ...(c.database.shardKey && { shardKey: c.database.shardKey }),
         ...(c.database.shardStrategy && { strategy: c.database.shardStrategy }),
+        ...(c.database.maxConnections != null && { maxConn: c.database.maxConnections }),
       };
     }
     if (c.loadBalancer) {
       if (kind !== 'lb') warnings.push(`loadBalancer settings on "${c.name}" were ignored: it is not an lb.`);
       else over.lbc = { ...(c.loadBalancer.algorithm && { algo: LB_ALGO[c.loadBalancer.algorithm] }), ...(c.loadBalancer.virtualNodes && { vnodes: c.loadBalancer.virtualNodes }) };
+    }
+    if (c.measured && (c.measured.requestsPerSecond || c.measured.latencyMs)) {
+      if (kind === 'users') warnings.push(`measured numbers on "${c.name}" were ignored: users have no capacity.`);
+      else over.measured = { ...(c.measured.requestsPerSecond && { rps: c.measured.requestsPerSecond }), ...(c.measured.latencyMs && { ms: c.measured.latencyMs }) };
     }
     if (c.cache) {
       if (kind !== 'cache') warnings.push(`cache settings on "${c.name}" were ignored: it is not a cache.`);

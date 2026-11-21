@@ -17,7 +17,7 @@ export const MetricsBar = memo(function MetricsBar({ metrics }: { metrics: Metri
   return (
     <div className="metrics">
       {metrics.map((m) => (
-        <div key={m.key} className={cx('metric', m.bad && 'bad')}>
+        <div key={m.key} className={cx('metric', m.bad && 'bad')} title={m.tip}>
           <div className="mlabel"><Icon path={m.icon} size={11} stroke={2.4} />{m.label}</div>
           <div className="mval">{m.value}</div>
         </div>

@@ -24,7 +24,7 @@ export const ComponentSpec = z.object({
     + 'app = API/service server; worker = background consumer; cache = Redis/Memcached; db = database; '
     + 'store = object storage like S3; queue = Kafka/SQS/RabbitMQ; ext = third-party API (payments, email, LLM).',
   ),
-  tech: z.string().trim().max(60).optional().describe('Technology label, e.g. "Go", "Postgres", "Kafka", "Stripe".'),
+  tech: z.string().trim().max(60).optional().describe('Technology, e.g. "Go", "Postgres", "Kafka". Known technologies change capacity and latency (see list_component_kinds); others use the kind\'s baseline.'),
   size: z.enum(SIZE_VALUES).optional().describe('Machine size for app, worker, cache and db. Bigger = more capacity and cost. Default 16vCPU.'),
   replicas: z.number().int().min(1).max(20).optional().describe('Fixed number of identical instances (app/worker/cache). A replicated app needs a load balancer, gateway or queue in front.'),
   autoscale: z.object({
@@ -41,11 +41,16 @@ export const ComponentSpec = z.object({
     syncReplication: z.boolean().optional().describe('true = writes wait for replicas (slower, never stale)'),
     shardKey: z.string().trim().max(40).optional(),
     shardStrategy: z.enum(['hash', 'range', 'geo']).optional(),
+    maxConnections: z.number().int().min(10).max(100_000).optional().describe('Max client connections per server. Default: Postgres 100, MySQL 151, no limit for MongoDB/Cassandra/DynamoDB. Use 10000 to model a pooler like PgBouncer.'),
   }).optional().describe('Only for kind db.'),
   loadBalancer: z.object({
     algorithm: z.enum(LB_ALGORITHM_VALUES).optional(),
     virtualNodes: z.union([z.literal(1), z.literal(10), z.literal(100)]).optional().describe('ip_hash only'),
   }).optional().describe('Only for kind lb.'),
+  measured: z.object({
+    requestsPerSecond: z.number().positive().max(10_000_000).optional().describe('What one instance handled in a real load test, at this size.'),
+    latencyMs: z.number().positive().max(60_000).optional().describe('Time one request takes when the server is idle.'),
+  }).optional().describe('Real numbers from a load test; they replace the built-in estimates.'),
   cache: z.object({
     ttlSeconds: z.number().int().min(1).max(86_400).optional().describe('How long a key lives. If the database goes down, the cache keeps answering hits until its keys expire. Default 60.'),
   }).optional().describe('Only for kind cache.'),
@@ -60,6 +65,9 @@ export const ConnectionSpec = z.object({
   carries: z.enum(['read', 'write', 'both']).optional().describe('For connections into databases: which traffic it carries. Default both.'),
   weight: z.number().int().min(1).max(10).optional().describe('Share of the caller\'s traffic relative to its other connections. Default 1.'),
   route: z.string().trim().max(60).optional().describe('Gateway path such as "/orders/*" (only from a gateway).'),
+  callsPerRequest: z.number().int().min(1).max(20).optional().describe('Fan-out: every request through the caller makes this many calls here (e.g. an API that calls 3 services sets 1 on each). Without it, the caller\'s traffic is split across its connections by weight.'),
+  retries: z.number().int().min(0).max(3).optional().describe('Times a failed call is retried. Hides short blips but multiplies load on an overloaded target (retry storm).'),
+  circuitBreaker: z.boolean().optional().describe('Stop calling the target while it fails (fail fast) so it can recover.'),
 });
 
 export const GroupSpec = z.object({
