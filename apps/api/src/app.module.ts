@@ -7,6 +7,7 @@ import { UsersModule } from './users/users.module';
 import { DevAuthGuard } from './common/auth/dev-auth.guard';
 import { DesignsModule } from './designs/designs.module';
 import { VersionsModule } from './versions/versions.module';
+import { McpModule } from './mcp/mcp.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -16,6 +17,7 @@ import { HealthController } from './health/health.controller';
     UsersModule,
     DesignsModule,
     VersionsModule,
+    McpModule,
   ],
   controllers: [HealthController],
   // Swap DevAuthGuard for a JWT guard when real auth lands; nothing else changes.

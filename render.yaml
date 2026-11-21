@@ -24,6 +24,12 @@ services:
         value: https://syslab-web.onrender.com
       - key: DEV_USER_EMAIL
         value: dev@syslab.local
+      # links returned by the MCP tools ("open this design in SysLab")
+      - key: WEB_URL
+        value: https://syslab-web.onrender.com
+      # shared secret for /api/mcp; Render generates a random value, copy it from the dashboard
+      - key: MCP_API_KEY
+        generateValue: true
 
   - type: web
     name: syslab-web
