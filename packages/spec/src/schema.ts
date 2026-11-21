@@ -74,7 +74,7 @@ export const GroupSpec = z.object({
   name: name.describe('Label, e.g. "AWS us-east-1" or "Data tier"'),
   members: z.array(name).min(1).max(200).describe('Component names inside this group'),
   color: z.enum(COLOR_VALUES).optional(),
-  collapsed: z.boolean().optional().describe('Show the group as one summary card'),
+  collapsed: z.boolean().optional().describe('Show the group as one summary card. Default: true when the design has more than 30 components and 2+ groups.'),
 });
 
 export const FlowSpec = z.object({

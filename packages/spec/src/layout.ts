@@ -9,6 +9,8 @@ const COL_GAP = 170;      // horizontal room between columns, for edge labels
 const ROW_GAP = 46;       // vertical room between nodes in one column
 const BAND_GAP = 120;     // vertical room between group bands (group label + padding)
 const PAD = 40;           // group box padding
+const MAX_ROWS = 4;       // a column taller than this wraps into side-by-side sub-columns
+const SUB_GAP = 60;       // room between sub-columns
 const ORIGIN = { x: 150, y: 140 };
 
 /**
@@ -82,9 +84,10 @@ function layers(nodes: DesignNode[], edges: DesignEdge[]): Map<string, number> {
 }
 
 /**
- * Left-to-right layered layout. Columns are hops from the users; inside the canvas every group
- * gets its own horizontal band (ungrouped nodes first), so a group's box never swallows
- * components that are not in it. Within a band, nodes follow their callers to cut crossings.
+ * Left-to-right layered layout. Columns are hops from the users; every group gets its own band
+ * (ungrouped nodes first), so a group's box never swallows components that are not in it. Bands
+ * pack upwards into free columns, tall columns wrap into sub-columns, and within a band nodes
+ * follow their callers to cut crossings.
  */
 export function layout(nodes: DesignNode[], edges: DesignEdge[], groups: string[][]) {
   const level = layers(nodes, edges);
@@ -113,33 +116,47 @@ export function layout(nodes: DesignNode[], edges: DesignEdge[], groups: string[
     columns.push(col.map((c) => c.id));
   }
 
-  // x: each column is as wide as its widest node
+  // A layer with many nodes (8 services behind one gateway) would make one very tall column, so
+  // each band's stack wraps into sub-columns of at most MAX_ROWS, keeping the diagram compact.
+  const chunks = (ids: string[]) => {
+    const sub = Math.max(1, Math.ceil(ids.length / MAX_ROWS)), size = Math.ceil(ids.length / sub);
+    return Array.from({ length: sub }, (_, i) => ids.slice(i * size, (i + 1) * size)).filter((c) => c.length);
+  };
+  const nodeW = columns.map((col) => Math.max(140, ...col.map((id) => ext.get(id)!.left + ext.get(id)!.right)));
+  const subs = columns.map((col) => Math.max(1, ...bands.map((b) => chunks(col.filter((id) => band.get(id) === b)).length)));
+
+  // x: each column fits its sub-columns of its widest node
   const colLeft: number[] = [];
   let x = ORIGIN.x;
-  for (const col of columns) {
+  columns.forEach((_, L) => {
     colLeft.push(x);
-    const width = Math.max(140, ...col.map((id) => ext.get(id)!.left + ext.get(id)!.right));
-    x += width + COL_GAP;
-  }
+    x += subs[L] * nodeW[L] + (subs[L] - 1) * SUB_GAP + COL_GAP;
+  });
 
-  // y: bands stacked top to bottom; inside a band each column's stack is centred
+  // y: each band drops only as far as the bands already in its own columns (skyline packing), so
+  // groups that live in different columns sit side by side instead of in a tall staircase.
+  // Inside a band each column's stack is centred.
   const placed = new Map<string, Placed>();
-  let bandTop = ORIGIN.y;
+  const skyline = columns.map(() => ORIGIN.y);
   for (const b of bands) {
-    const stacks = columns.map((col) => col.filter((id) => band.get(id) === b));
+    const stacks = columns.map((col) => chunks(col.filter((id) => band.get(id) === b)));
+    const used = stacks.map((parts, L) => (parts.length ? L : -1)).filter((L) => L >= 0);
+    const lo = Math.min(...used), hi = Math.max(...used);
+    const bandTop = Math.max(...skyline.slice(lo, hi + 1));
     const heightOf = (ids: string[]) => ids.reduce((s, id) => s + ext.get(id)!.top + ext.get(id)!.bottom, 0) + Math.max(0, ids.length - 1) * ROW_GAP;
-    const bandH = Math.max(0, ...stacks.map(heightOf));
-    stacks.forEach((ids, L) => {
+    const bandH = Math.max(0, ...stacks.flat().map(heightOf));
+    stacks.forEach((parts, L) => parts.forEach((ids, sc) => {
       let y = bandTop + (bandH - heightOf(ids)) / 2;
       for (const id of ids) {
         const e = ext.get(id)!, n = nodes.find((m) => m.id === id)!, k = KINDS[n.kind];
-        const ax = colLeft[L] + e.left, ay = y + e.top;
+        const ax = colLeft[L] + sc * (nodeW[L] + SUB_GAP) + e.left, ay = y + e.top;
         placed.set(id, { x: Math.round(ax / 10) * 10, y: Math.round(ay / 10) * 10, w: k.w, h: k.h, ...e });
         y += e.top + e.bottom + ROW_GAP;
       }
-    });
-    bandTop += bandH + BAND_GAP;
+    }));
+    for (let L = lo; L <= hi; L++) skyline[L] = bandTop + bandH + BAND_GAP;
   }
+  const bottom = Math.max(...skyline);
 
   /** Box around a set of nodes (a group), with room for its label. */
   const groupBox = (ids: string[]): Box => {
@@ -150,7 +167,7 @@ export function layout(nodes: DesignNode[], edges: DesignEdge[], groups: string[
     return { x: Math.round(l), y: Math.round(t), w: Math.round(r - l), h: Math.round(btm - t) };
   };
   /** A spot below the diagram for notes that are not attached to a component. */
-  const freeSpot = (i: number) => ({ x: ORIGIN.x + i * 220, y: bandTop });
+  const freeSpot = (i: number) => ({ x: ORIGIN.x + i * 220, y: bottom });
 
   return { nodes: placed, groupBox, freeSpot };
 }

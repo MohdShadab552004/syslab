@@ -99,6 +99,9 @@ importers:
       '@syslab/sim':
         specifier: workspace:*
         version: link:../../packages/sim
+      '@syslab/spec':
+        specifier: workspace:*
+        version: link:../../packages/spec
       '@syslab/types':
         specifier: workspace:*
         version: link:../../packages/types

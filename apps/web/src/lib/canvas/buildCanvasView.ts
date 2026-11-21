@@ -6,7 +6,8 @@ import {
 } from '@syslab/sim';
 import type { FlowPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
-import { GROUP_CARD, cardCenter, collapsedOwners, groupMembers } from './groups';
+import { GROUP_CARD, cardCenter, cardLeft, collapsedOwners, groupMembers } from './groups';
+import { DEFAULT_VIEW, elbowRoute, findHubs, focusSet, pointAlong, type ViewPrefs } from './readability';
 
 /* ------------------------------------------------------------------ */
 /*  View models: plain data the canvas components render, no logic.   */
@@ -75,6 +76,8 @@ export interface NodeView {
   /** drop target state while an edge end is dragged over this node */
   drop?: 'ok' | 'bad' | null;
   queue: QueueVisual | null;
+  /** shared infrastructure this node calls, shown as chips instead of lines (and "N callers" on a hub) */
+  chips: { key: string; text: string; hot: boolean }[];
 }
 
 /** tone: colour of a client (IP hash shows the same colour always reaching the same server) */
@@ -93,6 +96,8 @@ export interface LineView {
   packets: PacketView[];
   retract: boolean;
   tag?: LineTagView;
+  /** elbow-routed line: SVG path data and arrowhead (x / y / len / ang are then unused) */
+  path?: { d: string; arrow: { x: number; y: number; ang: number } };
 }
 
 export interface EdgeView {
@@ -101,6 +106,12 @@ export interface EdgeView {
   async: boolean;
   selected: boolean;
   dim: boolean;
+  /** connected to the hovered or focused node: drawn stronger */
+  hl: boolean;
+  /** carries only reads: drawn lighter */
+  read: boolean;
+  /** merged connections into / out of a collapsed group: drawn thicker */
+  weight: number;
   label: string;
   showLabel: boolean;
   labelX: number;
@@ -124,7 +135,7 @@ export interface GroupView {
   summary: GroupSummaryView | null;
 }
 
-export interface NoteView { id: string; x: number; y: number; text: string; selected: boolean }
+export interface NoteView { id: string; x: number; y: number; text: string; selected: boolean; open: boolean }
 
 export interface CanvasView {
   nodes: NodeView[];
@@ -152,6 +163,9 @@ export interface CanvasUi {
   readOnly?: boolean;
   multi?: Pick[];
   marquee?: Marquee | null;
+  /** node under the pointer: its hidden lines show and its connections light up */
+  hover?: string | null;
+  view?: ViewPrefs;
 }
 
 const LETTERS = 'ABCDEFGH';
@@ -203,10 +217,29 @@ function lbPackets(rps: number, share: number, idx: number, n: number, algo: str
   }));
 }
 
-function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false): LineView {
+function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false, elbow = false): LineView {
   const s = segment(a, b);
-  return { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+  const lv: LineView = { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+  if (elbow && !retract) {
+    const r = elbowRoute(a, b, targetRadius + 2);
+    lv.path = { d: r.d, arrow: r.arrow };
+  }
+  return lv;
 }
+
+/** Point a fraction t along a line, following its elbow route when it has one. */
+function along(a: Point, b: Point, t: number, elbow: boolean, targetRadius = 0): Point {
+  if (!elbow) return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return pointAlong(elbowRoute(a, b, targetRadius).pts, t);
+}
+
+/** Does a flow step from a straight to b? */
+function flowHop(steps: string[], a: string, b: string): boolean {
+  for (let i = 0; i < steps.length - 1; i++) if (steps[i] === a && steps[i + 1] === b) return true;
+  return false;
+}
+
+const byIdOk = (doc: DesignDoc, id: string) => doc.nodes.some((n) => n.id === id);
 
 /** % of a load balancer's traffic that goes down one of its connections (null with fewer than two). */
 function lbEdgeShare(doc: DesignDoc, sim: SimResult, lbId: string, edgeId: string): number | null {
@@ -246,8 +279,39 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
   const dropOf = (id: string): 'ok' | 'bad' | null =>
     rw && rwEdge && rw.over === id ? (canRewire(doc, rw.edgeId, rw.end, id) ? 'ok' : 'bad') : null;
 
+  /* ---------- readability: shared infra, focus ---------- */
+  const view = ui.view ?? DEFAULT_VIEW;
+  const hubs = view.edges === 'smart' ? findHubs(doc) : new Set<string>();
+  // focus = what is selected (a node, several, or both ends of a connection); hover only lights up
+  const selEdge = sel?.type === 'edge' ? doc.edges.find((x) => x.id === sel.id) : undefined;
+  const focusIds = [...picked].filter((k) => k.startsWith('node:')).map((k) => k.slice(5));
+  if (selEdge) focusIds.push(selEdge.from, selEdge.to);
+  const focus = focusSet(doc, focusIds);
+  const focused = focus.nodes.size > 0 && !playing && !rw;
+  const hover = ui.hover && byIdOk(doc, ui.hover) ? focusSet(doc, [ui.hover]) : null;
+  /** a line into a hub stays hidden unless something about it is in focus */
+  const hiddenEdge = (e: { id: string; from: string; to: string }) => hubs.has(e.to)
+    && !focus.edges.has(e.id) && !hover?.edges.has(e.id) && !(selEdge?.id === e.id) && rw?.edgeId !== e.id
+    && !(flowShown && flowHop(flowShown.steps, e.from, e.to));
+  const chipsOf = (id: string) => {
+    const label = (x: string) => sim.byId.get(x)?.label ?? x;
+    const hot = (x: string) => { const t = sim.byId.get(x); return !!t && (t.down || isOver(sim.load[x] ?? 0)); };
+    const outs = doc.edges.filter((e) => e.from === id && hiddenEdge(e) && !ownerOf('node', e.to)).map((e) => e.to);
+    const list = [...new Set(outs)].map((x) => ({ key: x, text: label(x), hot: hot(x) }));
+    const shown = list.slice(0, 3);
+    if (list.length > 3) shown.push({ key: '+more', text: `+${list.length - 3}`, hot: list.slice(3).some((c) => c.hot) });
+    if (hubs.has(id)) {
+      const callers = new Set(doc.edges.filter((e) => e.to === id).map((e) => e.from)).size;
+      shown.unshift({ key: 'callers', text: `← ${callers} callers`, hot: false });
+    }
+    return shown;
+  };
+
   /* ---------- nodes ---------- */
-  const nodes: NodeView[] = doc.nodes.filter((n) => !ownerOf('node', n.id)).map((n) => ({ ...buildNode(n, sim, ui, positions.get(n.id)!, stepsOf, playing), drop: dropOf(n.id), selected: isPicked('node', n.id) }));
+  const nodes: NodeView[] = doc.nodes.filter((n) => !ownerOf('node', n.id)).map((n) => {
+    const v = buildNode(n, sim, ui, positions.get(n.id)!, stepsOf, playing);
+    return { ...v, drop: dropOf(n.id), selected: isPicked('node', n.id), dim: v.dim || (focused && !focus.nodes.has(n.id)), chips: chipsOf(n.id) };
+  });
 
   /* ---------- edges ---------- */
   const edges: EdgeView[] = [];
@@ -267,12 +331,15 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     merged.set(k, m);
   }
   const drawnMerged = new Set<string>();
+  /** does a merged group line touch a focused node (through the collapsed group)? */
+  const mergedTouches = (mk: string, ids: Set<string>) => doc.edges.some((x) => mergeKey(x) === mk && (ids.has(x.from) || ids.has(x.to)));
   const CARD_R = Math.min(GROUP_CARD.w, GROUP_CARD.h) / 2;
   for (const e of doc.edges) {
     const a = sim.byId.get(e.from), b = sim.byId.get(e.to);
     if (!a || !b) continue;
     const mk = mergeKey(e);
     if (mk === 'internal') continue;
+    if (!mk && hiddenEdge(e)) continue;
     if (mk) { if (drawnMerged.has(mk)) continue; drawnMerged.add(mk); }
     const intoCard = !!ownerOf('node', b.id);
     const A = positions.get(a.id)!, B = positions.get(b.id)!;
@@ -318,6 +385,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       ? { from: { x: Math.round(A[0].x + ux * rA), y: Math.round(A[0].y + uy * rA) }, to: { x: Math.round(B[0].x - ux * (r + 2)), y: Math.round(B[0].y - uy * (r + 2)) } }
       : null;
     const lbShare = a.kind === 'lb' ? lbEdgeShare(doc, sim, a.id, e.id) : null;
+    const elbow = view.route === 'elbow';
+    const mid = along(A[0], B[0], 0.5, elbow);
 
     edges.push({
       id: e.id,
@@ -334,7 +403,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
           const lineRps = mine.reduce((t, x) => t + x.rps, 0);
           const idx = Math.max(0, lbList.findIndex((x) => x === mine[0]));
           const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failRI, key) : [];
-          const lv = line(key, p, q, r * scale, pk, retract);
+          const lv = line(key, p, q, r * scale, pk, retract, elbow);
           if (lbList.length > 1 && lineRps >= MIN_VISIBLE_RPS) {
             const pct = `${Math.round(share * 100)}%`;
             const lat = (sim.nodeLatency[b.id] ?? KINDS[b.kind].lat) / 1000;
@@ -342,29 +411,33 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
               : lbAlgo === 'wrr' ? `w${e.weight || 1} · ${pct}`
               : lbAlgo === 'lc' ? `${fmtCompact(lineRps * lat)} conns · ${pct}`
               : `${pct} of users`;
-            const t = 0.68;
-            lv.tag = { text, x: Math.round(p.x + (q.x - p.x) * t), y: Math.round(p.y + (q.y - p.y) * t), hot: failI && !b.down };
+            const at = along(p, q, 0.82, elbow, r * scale);
+            lv.tag = { text, x: Math.round(at.x), y: Math.round(at.y), hot: failI && !b.down };
           }
           return lv;
         }
         let pk = ui.running && !sim.breakerOpen[e.id] ? packets(rpsI, e.mode === 'async', failRI, key) : [];
         if (intoHash) pk = pk.map((x, j) => ({ ...x, tone: j % TONES }));
-        const lv = line(key, p, q, r * scale, pk, retract);
+        const lv = line(key, p, q, r * scale, pk, retract, elbow);
         // what this connection is doing, when it matters: breaker open > retry storm > fan-out
         const amp = sim.retryAmp[e.id] ?? 1;
         const tagText = i > 0 ? null : sim.breakerOpen[e.id] ? 'breaker open' : amp > 1.05 ? `retries ×${amp.toFixed(1)}` : (e.calls ?? 0) > 1 ? `${e.calls}× per request` : null;
-        if (tagText) lv.tag = { text: tagText, x: Math.round(p.x + (q.x - p.x) * 0.68), y: Math.round(p.y + (q.y - p.y) * 0.68), hot: !!sim.breakerOpen[e.id] || amp > 1.05 };
+        const at = along(p, q, 0.68, elbow, r * scale);
+        if (tagText) lv.tag = { text: tagText, x: Math.round(at.x), y: Math.round(at.y), hot: !!sim.breakerOpen[e.id] || amp > 1.05 };
         return lv;
       }),
       async: e.mode === 'async',
       selected: isSel || inMulti,
-      dim: playing || rw?.edgeId === e.id,
+      dim: playing || rw?.edgeId === e.id || (focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes))),
+      hl: !!hover?.edges.has(e.id) || (focused && focus.edges.has(e.id)),
+      read: e.op === 'read',
+      weight: agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1,
       label: agg && agg.count > 1
         ? `${agg.count} connections`
         : (e.route ? e.route + ' · ' : '') + e.proto + (e.mode === 'async' ? ' · async' : '') + (e.op !== 'both' ? ' · ' + e.op : '') + (lbShare != null ? ` · ${lbShare}%` : ''),
       showLabel: !ui.isLesson || isSel,
-      labelX: Math.round((A[0].x + B[0].x) / 2),
-      labelY: Math.round((A[0].y + B[0].y) / 2),
+      labelX: Math.round(mid.x),
+      labelY: Math.round(mid.y),
       handles,
     });
   }
@@ -403,13 +476,17 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     for (let i = 0; i < flowShown.steps.length - 1; i++) {
       const a = positions.get(flowShown.steps[i])?.[0], b = positions.get(flowShown.steps[i + 1])?.[0];
       if (!a || !b) continue;
-      const s = segment(a, b);
       const idx = flowPlay?.idx ?? -1;
-      flow.push({
-        key: `fs-${i}`, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2),
-        state: !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next',
-        token: !!flowPlay && i === idx,
-      });
+      const state = !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next';
+      const pts = view.route === 'elbow' ? elbowRoute(a, b, 0).pts : [a, b];
+      for (let j = 0; j < pts.length - 1; j++) {
+        const s = segment(pts[j], pts[j + 1]);
+        if (s.len < 0.5) continue;
+        flow.push({
+          key: `fs-${i}-${j}`, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), state,
+          token: !!flowPlay && i === idx && j === Math.floor((pts.length - 1) / 2),
+        });
+      }
     }
   }
 
@@ -435,7 +512,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       };
     }
     return {
-      id: g.id, x: g.x, y: g.y,
+      id: g.id, x: g.collapsed ? cardLeft(g) : g.x, y: g.y,
       w: g.collapsed ? GROUP_CARD.w : g.w, h: g.collapsed ? GROUP_CARD.h : g.h,
       label: g.label,
       border: GROUP_COLORS[g.color]?.border ?? GROUP_COLORS.blue.border,
@@ -445,7 +522,10 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       summary,
     };
   });
-  const notes: NoteView[] = doc.notes.filter((t) => !ownerOf('note', t.id)).map((t) => ({ ...t, selected: isPicked('note', t.id) }));
+  const notes: NoteView[] = doc.notes.filter((t) => !ownerOf('note', t.id)).map((t) => {
+    const selected = isPicked('note', t.id);
+    return { ...t, selected, open: view.notes === 'open' || selected || !t.text.trim() };
+  });
 
   const mq = ui.marquee;
   const marquee = mq ? { x: Math.min(mq.x1, mq.x2), y: Math.min(mq.y1, mq.y2), w: Math.abs(mq.x2 - mq.x1), h: Math.abs(mq.y2 - mq.y1) } : null;
@@ -575,5 +655,6 @@ function buildNode(
     crosshair: ui.tool === 'connect' || !!ui.recording,
     extras,
     queue,
+    chips: [],
   };
 }

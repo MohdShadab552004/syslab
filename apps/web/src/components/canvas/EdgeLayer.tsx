@@ -4,10 +4,27 @@ import type { EdgeView, FlowSegmentView, ReplicationLineView, RewireView } from 
 import type { EdgeEnd } from '@/hooks/editor/editor.store';
 import { Line } from './Line';
 
+const edgeClass = (e: EdgeView) => cx(e.async && 'async', e.selected && 'sel', e.dim && 'dim', e.hl && 'hl', e.read && 'read', e.weight > 1 && 'agg');
+
 export const EdgeLayer = memo(function EdgeLayer({ edges, replication }: { edges: EdgeView[]; replication: ReplicationLineView[] }) {
+  const paths = edges.flatMap((e) => e.lines.filter((l) => l.path).map((l) => ({ e, l })));
   return (
     <>
-      {edges.map((e) => e.lines.map((l) => <Line key={l.key} v={l} className={cx(e.async && 'async', e.selected && 'sel', e.dim && 'dim')} />))}
+      {edges.map((e) => e.lines.filter((l) => !l.path).map((l) => <Line key={l.key} v={l} className={edgeClass(e)} />))}
+      {paths.length > 0 && (
+        <svg className="opaths" aria-hidden="true">
+          {paths.map(({ e, l }) => (
+            <g key={l.key} className={cx('opath', edgeClass(e))} style={{ '--ew': e.weight } as React.CSSProperties}>
+              <path d={l.path!.d} />
+              <polygon points="0,-5.5 11,0 0,5.5" transform={`translate(${l.path!.arrow.x} ${l.path!.arrow.y}) rotate(${l.path!.arrow.ang}) translate(-11 0)`} />
+            </g>
+          ))}
+        </svg>
+      )}
+      {paths.map(({ e, l }) => l.packets.map((p) => (
+        <span key={p.key} className={cx('ppkt', p.fail && 'fail', p.tone != null && `t${p.tone}`, e.dim && 'dim')}
+          style={{ offsetPath: `path('${l.path!.d}')`, animationDuration: `${p.dur}s`, animationDelay: `${p.delay}s` } as React.CSSProperties} />
+      )))}
       {replication.map((l) => <Line key={l.key} v={l} className="repl" packetClass="repl" />)}
     </>
   );

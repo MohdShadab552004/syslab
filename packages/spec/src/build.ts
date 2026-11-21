@@ -162,9 +162,11 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
   const placed = layout(nodes, edges, groupsIn.map((g) => g.ids));
   for (const n of nodes) { const p = placed.nodes.get(n.id)!; n.x = p.x; n.y = p.y; }
 
+  // big designs open as one card per group, so the first view is readable (expand to see inside)
+  const autoCollapse = nodes.length > 30 && groupsIn.length >= 2;
   const groups: DesignGroup[] = groupsIn.map((g, i) => ({
     id: `g_${i + 1}`, label: g.name, color: g.color ?? (['blue', 'green', 'orange', 'gray'] as const)[i % 4],
-    ...placed.groupBox(g.ids), ...(g.collapsed && { collapsed: true }),
+    ...placed.groupBox(g.ids), ...((g.collapsed ?? autoCollapse) && { collapsed: true }),
   }));
 
   const notes: DesignNote[] = spec.notes.map((t, i) => {

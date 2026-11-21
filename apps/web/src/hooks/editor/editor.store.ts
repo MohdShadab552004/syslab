@@ -16,6 +16,8 @@ import {
 
 import type { FlowPlayback, InspectorTab, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
 import { groupMembers } from '@/lib/canvas/groups';
+import { loadViewPrefs, saveViewPrefs, type ViewPrefs } from '@/lib/canvas/readability';
+import { layout } from '@syslab/spec';
 export type { FlowPlayback, InspectorTab, Marquee, Pick, SaveState, Selection, Toast, Tool };
 
 interface UiState {
@@ -36,6 +38,10 @@ interface UiState {
   multi: Pick[];
   /** box-select rectangle while dragging on empty canvas */
   marquee: Marquee | null;
+  /** node under the pointer */
+  hover: string | null;
+  /** how the canvas draws the design (per browser) */
+  view: ViewPrefs;
 }
 
 export type EdgeEnd = 'from' | 'to';
@@ -67,6 +73,7 @@ interface ClipBundle { nodes: DesignNode[]; groups: DesignGroup[]; notes: Design
 const initialUi: UiState = {
   tool: 'select', sel: null, pending: null, dragging: false, recording: null, flowPlay: null,
   tab: 'inspect', shareOpen: false, toast: null, query: '', running: true, rewire: null, multi: [], marquee: null,
+  hover: null, view: loadViewPrefs(),
 };
 
 /** Everything selected right now, as picks (a selected connection is not included). */
@@ -338,6 +345,49 @@ function createActions(set: Set, get: Get) {
     setRewire(r: Rewire | null) { set((s) => { s.ui.rewire = r; }); },
     setDragging(dragging: boolean) { if (dragging) breakMerge(); set((s) => { s.ui.dragging = dragging; }); },
     toggleRunning() { set((s) => { s.ui.running = !s.ui.running; }); },
+    setHover(id: string | null) { if (get().ui.hover !== id) set((s) => { s.ui.hover = id; }); },
+    setView(patch: Partial<ViewPrefs>) {
+      set((s) => { s.ui.view = { ...s.ui.view, ...patch }; });
+      saveViewPrefs(get().ui.view);
+    },
+    /** Collapse (or expand) every group at once. */
+    setAllGroupsCollapsed(collapsed: boolean) {
+      const doc = get().doc;
+      if (!doc || !doc.groups.some((g) => !!g.collapsed !== collapsed)) return;
+      edit((d, s) => {
+        for (const g of d.groups) g.collapsed = collapsed;
+        if (collapsed) {
+          // members of collapsed groups are hidden, so they cannot stay selected
+          const hidden = new Set(d.groups.flatMap((g) => groupContents(d, g.id).filter((p) => p.type !== 'group' || p.id !== g.id)).map((p) => `${p.type}:${p.id}`));
+          if (s.ui.sel && s.ui.sel.type !== 'edge' && hidden.has(`${s.ui.sel.type}:${s.ui.sel.id}`)) s.ui.sel = null;
+          s.ui.multi = s.ui.multi.filter((p) => !hidden.has(`${p.type}:${p.id}`));
+        }
+      });
+    },
+    /**
+     * Re-arrange everything left to right in layers (users → edge → services → data), with each
+     * group in its own band, so lines cross less. Notes keep their place next to their nearest node.
+     */
+    autoLayout() {
+      const doc = get().doc;
+      if (!doc || !doc.nodes.length) return;
+      const members = doc.groups.map((g) => groupMembers(doc, g).nodes);
+      const L = layout(doc.nodes, doc.edges, members);
+      edit((d) => {
+        const anchor = d.notes.map((t) => {
+          let best: DesignNode | null = null, dist = Infinity;
+          for (const n of d.nodes) { const k = Math.hypot(n.x - t.x, n.y - t.y); if (k < dist) { dist = k; best = n; } }
+          return best ? { id: best.id, dx: t.x - best.x, dy: t.y - best.y } : null;
+        });
+        for (const n of d.nodes) { const p = L.nodes.get(n.id); if (p) { n.x = p.x; n.y = p.y; } }
+        d.groups.forEach((g, i) => { if (members[i].length) Object.assign(g, L.groupBox(members[i])); });
+        d.notes.forEach((t, i) => {
+          const a = anchor[i], n = a && d.nodes.find((x) => x.id === a.id);
+          if (a && n) { t.x = n.x + a.dx; t.y = n.y + a.dy; }
+        });
+      });
+      get().actions.toast('Laid out left to right · Ctrl+Z to undo');
+    },
     /** Throw away every message waiting in a queue. */
     purgeQueue(id: string) { set((s) => { s.runtime.qDepth = { ...s.runtime.qDepth }; delete s.runtime.qDepth[id]; }); toast('Queue purged'); },
     setSpike(spike: number) { set((s) => { s.runtime.spike = spike; }); },

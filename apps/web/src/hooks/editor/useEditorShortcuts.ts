@@ -73,6 +73,7 @@ export function useEditorShortcuts() {
         case 'c': if (!e.shiftKey) a.setTool('connect'); return;
         case 'g': if (!e.shiftKey) a.addGroup(); return;
         case 'n': if (!e.shiftKey) a.addNote(); return;
+        case 'l': if (!e.shiftKey) a.autoLayout(); return;
         case 'p': if (!e.shiftKey) a.toggleRunning(); return;
         case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown': {
           const step = e.shiftKey ? 50 : 10;

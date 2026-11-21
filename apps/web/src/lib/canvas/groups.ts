@@ -32,5 +32,11 @@ export function collapsedOwners(doc: DesignDoc): Map<string, string> {
   return owners;
 }
 
+/**
+ * Left edge of a collapsed group's card: centred on the group's box, so cards of neighbouring
+ * groups never overlap even when a group is narrower than its card.
+ */
+export const cardLeft = (g: DesignGroup) => Math.round(g.x + (g.w - GROUP_CARD.w) / 2);
+
 /** Centre of a collapsed group's card, where its hidden members' connections attach. */
-export const cardCenter = (g: DesignGroup) => ({ x: g.x + GROUP_CARD.w / 2, y: g.y + GROUP_CARD.h / 2 });
+export const cardCenter = (g: DesignGroup) => ({ x: cardLeft(g) + GROUP_CARD.w / 2, y: g.y + GROUP_CARD.h / 2 });

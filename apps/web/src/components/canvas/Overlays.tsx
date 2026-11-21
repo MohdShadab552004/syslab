@@ -26,6 +26,11 @@ export const MetricsBar = memo(function MetricsBar({ metrics }: { metrics: Metri
   );
 });
 
+export interface ViewMenuProps {
+  toggles: { key: string; label: string; hint: string; on: boolean; onToggle: () => void }[];
+  actions: { key: string; label: string; hint: string; onSelect: () => void; disabled: boolean }[];
+}
+
 interface ToolbarProps {
   tool: Tool;
   onTool: (t: Tool) => void;
@@ -33,9 +38,10 @@ interface ToolbarProps {
   onAddNote: () => void;
   onClear: () => void;
   spikes: Option[];
+  view: ViewMenuProps;
 }
 
-export const CanvasToolbar = memo(function CanvasToolbar({ tool, onTool, onAddGroup, onAddNote, onClear, spikes }: ToolbarProps) {
+export const CanvasToolbar = memo(function CanvasToolbar({ tool, onTool, onAddGroup, onAddNote, onClear, spikes, view }: ToolbarProps) {
   return (
     <div className="toolbar" onPointerDown={(e) => e.stopPropagation()}>
       <Button size="sm" icon={ICON.cursor} active={tool === 'select'} onClick={() => onTool('select')} aria-label="Move" data-tip="Move · drag components around   V">Move</Button>
@@ -45,11 +51,54 @@ export const CanvasToolbar = memo(function CanvasToolbar({ tool, onTool, onAddGr
       <Button size="sm" icon={ICON.note} onClick={onAddNote} aria-label="Note" data-tip="Note · add a sticky note   N">Note</Button>
       <span className="sep" />
       <SpikeMenu spikes={spikes} />
+      <ViewMenu {...view} />
       <span className="sep" />
       <Button size="sm" icon={ICON.trash} onClick={onClear} aria-label="Clear" data-tip="Clear · remove everything from the canvas">Clear</Button>
     </div>
   );
 });
+
+/** Close a popup on an outside click or Escape. */
+function useDismiss(open: boolean, setOpen: (v: boolean) => void, ref: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); };
+  }, [open, setOpen, ref]);
+}
+
+/** Readability options: hide shared-infra lines, elbow lines, note icons, layout and groups. */
+function ViewMenu({ toggles, actions }: ViewMenuProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(open, setOpen, ref);
+  return (
+    <div className="spikemenu" ref={ref}>
+      <Button size="sm" className="keep" icon={ICON.view} data-tip={open ? undefined : 'View · make big diagrams readable'} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        View
+        <svg className={cx('caret', open && 'up')} width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </Button>
+      {open && (
+        <div className="spikelist viewlist" role="menu" aria-label="View options">
+          {toggles.map((t) => (
+            <button key={t.key} type="button" role="menuitemcheckbox" aria-checked={t.on} className={cx('spikeopt', 'vopt', t.on && 'on')} title={t.hint} onClick={t.onToggle}>
+              <span className={cx('vcheck', t.on && 'on')} aria-hidden="true">{t.on ? '✓' : ''}</span>{t.label}
+            </button>
+          ))}
+          <div className="vsep" />
+          {actions.map((x) => (
+            <button key={x.key} type="button" role="menuitem" className="spikeopt vopt" disabled={x.disabled} title={x.hint} onClick={() => { x.onSelect(); setOpen(false); }}>
+              <span className="vcheck" aria-hidden="true" />{x.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Traffic spike picker: one button that opens a small list. */
 function SpikeMenu({ spikes }: { spikes: Option[] }) {
