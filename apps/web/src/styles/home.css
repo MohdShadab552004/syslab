@@ -18,3 +18,12 @@
 .dmeta { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
 .dact { display: flex; gap: 6px; align-items: center; }
 .tag { font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; border: 1.5px solid var(--edge); margin-left: 6px; vertical-align: 2px; }
+
+@media (max-width: 600px) {
+  .home { padding: 20px 14px 40px; }
+  .wrap { gap: 22px; }
+  .h0 { font-size: 24px; }
+  .tgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tprev { height: 64px; }
+  .dgrid { grid-template-columns: 1fr; }
+}

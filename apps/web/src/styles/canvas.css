@@ -1,4 +1,4 @@
-.stage { flex: 999 1 560px; min-width: 0; height: calc(100vh - 56px - var(--bottom-h, 96px)); overflow: hidden; position: relative; background-color: var(--surface-2); background-image: radial-gradient(circle, #d0cec6 1px, transparent 1.4px); background-size: 20px 20px; touch-action: none; overscroll-behavior: contain; }
+.stage { flex: 999 1 560px; min-width: 0; height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 96px)); overflow: hidden; position: relative; background-color: var(--surface-2); background-image: radial-gradient(circle, #d0cec6 1px, transparent 1.4px); background-size: 20px 20px; touch-action: none; overscroll-behavior: contain; }
 /* infinite world: a fixed-size origin box, content may sit anywhere (even negative coords) */
 .world { position: absolute; left: 0; top: 0; width: 1240px; height: 900px; transform-origin: 0 0; touch-action: none; overflow: visible; pointer-events: none; }
 .world > * { pointer-events: auto; }
