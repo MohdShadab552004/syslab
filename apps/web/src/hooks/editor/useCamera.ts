@@ -37,6 +37,9 @@ export function useCamera() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const spaceRef = useRef(false);
   const pan = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number } | null>(null);
+  /** active touch points, for one-finger pan and two-finger pinch */
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d0: number; z0: number; wx: number; wy: number } | null>(null);
   const [panning, setPanning] = useState(false);
 
   /** Zoom to `z`, keeping the screen point (px, py) — relative to the stage — fixed. */
@@ -70,9 +73,13 @@ export function useCamera() {
       l = Math.min(l, (ir.left - wr.left) / z); t = Math.min(t, (ir.top - wr.top) / z);
       r = Math.max(r, (ir.right - wr.left) / z); b = Math.max(b, (ir.bottom - wr.top) / z);
     });
-    // leave room for the metrics / toolbar overlay at the top
-    const pad = 60, top = 100;
-    const W = stage.clientWidth - pad * 2, H = stage.clientHeight - top - pad;
+    // leave room for the toolbar / metrics overlay at the top and the floating buttons below
+    const sr = stage.getBoundingClientRect();
+    const hud = stage.querySelector<HTMLElement>('.metrics');
+    const top = hud ? Math.max(100, hud.getBoundingClientRect().bottom - sr.top + 24) : 100;
+    const narrow = stage.clientWidth < 600;
+    const pad = narrow ? 24 : 60;
+    const W = stage.clientWidth - pad * 2, H = stage.clientHeight - top - (narrow ? 70 : pad);
     const nz = clampZ(Math.min(1.5, W / Math.max(1, r - l), H / Math.max(1, b - t)));
     setCam({ z: nz, x: pad + (W - (r - l) * nz) / 2 - l * nz, y: top + (H - (b - t) * nz) / 2 - t * nz });
   }, []);
@@ -131,8 +138,39 @@ export function useCamera() {
     };
   }, [zoomIn, zoomOut, resetZoom, fit]);
 
+  /** Touch: two fingers pinch-zoom around their midpoint (and pan as they move). */
+  const startPinch = useCallback(() => {
+    const el = stageRef.current;
+    const [a, b] = [...touches.current.values()];
+    if (!el || !a || !b) return;
+    const r = el.getBoundingClientRect(), c = camRef.current;
+    const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+    pinch.current = { d0: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), z0: c.z, wx: (mx - c.x) / c.z, wy: (my - c.y) / c.z };
+    pan.current = null;
+    setPanning(true);
+  }, []);
+
   // Pan gestures run in the capture phase so they win over node / group drags.
   const onPointerDownCapture = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.current.size === 2) {
+        e.stopPropagation();
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+        startPinch();
+        return;
+      }
+      // one finger on empty canvas pans; on a component it drags the component as usual
+      const t = e.target as HTMLElement;
+      if (touches.current.size === 1 && !t.closest('[data-node], [data-note], .ghead, .group.collapsed, .gresize, .ehandle, .elabel, .hud > *, textarea, button')) {
+        e.stopPropagation();
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+        const c = camRef.current;
+        pan.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: c.x, cy: c.y };
+        setPanning(true);
+      }
+      return;
+    }
     if (e.button !== 1 && !(e.button === 0 && spaceRef.current)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -143,6 +181,20 @@ export function useCamera() {
   }, []);
 
   const onPointerMoveCapture = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const pc = pinch.current, el = stageRef.current;
+      if (pc && el && touches.current.size >= 2) {
+        e.stopPropagation();
+        const [a, b] = [...touches.current.values()];
+        const r = el.getBoundingClientRect();
+        const z = clampZ(pc.z0 * Math.hypot(a.x - b.x, a.y - b.y) / pc.d0);
+        const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+        // keep the world point that started under the fingers under the fingers
+        setCam({ z, x: mx - pc.wx * z, y: my - pc.wy * z });
+        return;
+      }
+    }
     const p = pan.current;
     if (!p || p.id !== e.pointerId) return;
     e.stopPropagation();
@@ -150,6 +202,15 @@ export function useCamera() {
   }, []);
 
   const onPointerUpCapture = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.delete(e.pointerId);
+      if (pinch.current && touches.current.size < 2) {
+        pinch.current = null;
+        setPanning(false);
+        // let the event through so a component drag started by the first finger can finish cleanly
+        return;
+      }
+    }
     const p = pan.current;
     if (!p || p.id !== e.pointerId) return;
     e.stopPropagation();
