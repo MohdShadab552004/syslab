@@ -1,0 +1,40 @@
+# Render Blueprint: the API and the web app run on Render, Postgres runs on Neon.
+# In Render: New → Blueprint → pick this repo. Render will ask for DATABASE_URL
+# (paste the Neon *direct* connection string, not the "-pooler" one).
+#
+# If Render had to rename a service (the name was taken), update NEXT_PUBLIC_API_URL
+# and CORS_ORIGIN below to the real *.onrender.com URLs and redeploy.
+
+services:
+  - type: web
+    name: syslab-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: pnpm install --frozen-lockfile && pnpm turbo run build --filter=@syslab/api
+    # free instances have no pre-deploy step, so migrations run right before the server starts
+    startCommand: pnpm --filter @syslab/api prisma:deploy && pnpm --filter @syslab/api start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://syslab-web.onrender.com
+      - key: DEV_USER_EMAIL
+        value: dev@syslab.local
+
+  - type: web
+    name: syslab-web
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: pnpm install --frozen-lockfile && pnpm turbo run build --filter=@syslab/web
+    startCommand: pnpm --filter @syslab/web start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # baked into the browser bundle at build time
+      - key: NEXT_PUBLIC_API_URL
+        value: https://syslab-api.onrender.com/api
