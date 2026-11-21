@@ -365,7 +365,7 @@ function createActions(set: Set, get: Get) {
         if (patch.dau !== undefined || patch.peak !== undefined) doc.users = usersFromRequirements(doc.requirements);
       }, `req:${keysOf(patch)}`);
     },
-    setUsers(users: number) { edit((doc) => { doc.users = Math.max(1, Math.round(users)); }, 'users'); },
+    setUsers(users: number) { edit((doc) => { doc.users = Math.max(0, Math.round(users || 0)); }, 'users'); },
 
     /* ---------- nodes ---------- */
     addNode(kind: NodeKind, x: number, y: number) {

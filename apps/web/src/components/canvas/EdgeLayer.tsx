@@ -52,6 +52,17 @@ export const RewireGhost = memo(function RewireGhost({ v }: { v: RewireView | nu
   );
 });
 
+/** Algorithm tags on load balancer lines (share, weight, open connections). */
+export const LineTags = memo(function LineTags({ edges }: { edges: EdgeView[] }) {
+  return (
+    <>
+      {edges.flatMap((e) => e.lines.filter((l) => l.tag).map((l) => (
+        <span key={`tag-${l.key}`} className={cx('etag', l.tag!.hot && 'hot', e.dim && 'dim')} style={{ left: l.tag!.x, top: l.tag!.y }}>{l.tag!.text}</span>
+      )))}
+    </>
+  );
+});
+
 export const FlowLayer = memo(function FlowLayer({ segments }: { segments: FlowSegmentView[] }) {
   return (
     <>
