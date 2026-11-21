@@ -31,6 +31,20 @@ Open http://localhost:3000.
 Auth is a seam for now: `DevAuthGuard` makes every request act as `DEV_USER_EMAIL`.
 Swap it for a JWT guard in `app.module.ts`; controllers already read `@CurrentUser()`.
 
+## Deploy (Render + Neon)
+
+The repo ships a Render Blueprint (`render.yaml`) for the API and the web app; Postgres lives on Neon.
+
+1. **Neon:** create a project (region *AWS Asia Pacific (Singapore)* to sit next to Render), and copy the
+   **direct** connection string (the host without `-pooler`), e.g. `postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
+2. **Render:** *New → Blueprint →* this repository → paste the Neon string when asked for `DATABASE_URL` → *Apply*.
+3. Migrations run automatically when the API starts. The dev user is created on the first request.
+4. If Render renamed a service because the name was taken, set `NEXT_PUBLIC_API_URL` (web) and
+   `CORS_ORIGIN` (api) to the real `*.onrender.com` URLs and redeploy.
+
+Free Render services sleep after 15 idle minutes, so the first request after a pause is slow.
+There is no real login yet: everyone who opens the site acts as the same dev user.
+
 ## Architecture rules
 
 ### Frontend (`apps/web/src`)
