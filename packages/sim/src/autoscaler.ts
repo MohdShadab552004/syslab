@@ -1,0 +1,92 @@
+import type { DesignDoc } from '@syslab/types';
+import { SIZES } from './catalog';
+import { QUEUE_MAX, type Runtime, type SimResult } from './simulate';
+
+export interface ScaleEvent { id: string; at: number; up: boolean; text: string }
+
+const LETTERS = 'ABCDEFGH';
+
+/** Ticks a replica spends draining before it is removed. */
+export const DRAIN_TICKS = 2;
+
+/**
+ * One autoscaler tick. Moves replica counts / sizes one step toward what the
+ * simulation wants. Returns null when nothing changed, so callers can skip a render.
+ */
+export function stepAutoscaler(
+  doc: DesignDoc,
+  sim: SimResult,
+  rt: Runtime,
+  now: number,
+): { runtime: Runtime; events: ScaleEvent[] } | null {
+  const autoRep = { ...rt.autoRep }, drain = { ...rt.drain }, autoSize = { ...rt.autoSize };
+  const events: ScaleEvent[] = [];
+  let changed = false;
+  const log = (up: boolean, text: string) => events.push({ id: `${now}-${events.length}`, at: now, up, text });
+
+  for (const n of doc.nodes) {
+    const want = sim.desiredReps[n.id];
+    if (want != null) {
+      const cur = sim.reps[n.id];
+      if (want > cur) {
+        const next = cur + (want - cur > 4 ? 2 : 1);
+        autoRep[n.id] = next;
+        delete drain[n.id];
+        changed = true;
+        log(true, `${n.label} scaled out ${cur} → ${next}`);
+      } else if (want < cur) {
+        const ticks = drain[n.id] ?? 0;
+        if (ticks >= DRAIN_TICKS) {
+          autoRep[n.id] = cur - 1;
+          delete drain[n.id];
+          log(false, `${n.label} scaled in ${cur} → ${cur - 1}`);
+        } else {
+          drain[n.id] = ticks + 1;
+          if (!ticks) log(false, `Draining ${n.label} ${LETTERS.charAt(Math.min(cur, 8) - 1)}`);
+        }
+        changed = true;
+      } else if (drain[n.id]) {
+        delete drain[n.id];
+        changed = true;
+      }
+    }
+
+    const wantSize = sim.desiredSize[n.id];
+    if (wantSize != null) {
+      const cur = sim.sizeIdx[n.id];
+      if (wantSize !== cur) {
+        const next = wantSize > cur ? cur + 1 : cur - 1;
+        autoSize[n.id] = next;
+        changed = true;
+        log(next > cur, `${n.label} resized ${next > cur ? 'up' : 'down'} ${SIZES[cur].cpu} → ${SIZES[next].cpu} vCPU`);
+      }
+    }
+  }
+
+  return changed ? { runtime: { ...rt, autoRep, drain, autoSize }, events } : null;
+}
+
+/** One second of queue time: every queue grows or drains by its net rate. Null when nothing moved. */
+export function stepQueues(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<string, number> | null {
+  const next: Record<string, number> = {};
+  let changed = false;
+  for (const n of doc.nodes) {
+    if (n.kind !== 'queue') continue;
+    const q = sim.queue[n.id];
+    const cur = rt.qDepth?.[n.id] ?? 0;
+    const d = q ? Math.max(0, Math.min(QUEUE_MAX, cur + q.growth)) : 0;
+    if (d > 0.5) next[n.id] = d;
+    if (Math.abs(d - cur) > 0.5) changed = true;
+  }
+  if (Object.keys(rt.qDepth ?? {}).some((id) => !(id in next) && (rt.qDepth[id] ?? 0) > 0.5)) changed = true;
+  return changed ? next : null;
+}
+
+/** Everything that changes with time, in one tick: autoscaling plus queue backlogs. */
+export function stepRuntime(doc: DesignDoc, sim: SimResult, rt: Runtime, now: number): { runtime: Runtime; events: ScaleEvent[] } | null {
+  const auto = stepAutoscaler(doc, sim, rt, now);
+  const q = stepQueues(doc, sim, rt);
+  if (!auto && !q) return null;
+  const runtime = auto ? auto.runtime : rt;
+  return { runtime: q ? { ...runtime, qDepth: q } : runtime, events: auto?.events ?? [] };
+}

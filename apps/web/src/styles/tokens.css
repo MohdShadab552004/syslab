@@ -1,0 +1,23 @@
+:root {
+  --font: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #efeee9;
+  --surface: #fbfbf9;
+  --surface-2: #f6f5f1;
+  --card: #ffffff;
+  --line: #e2e0da;
+  --line-2: #d6d4cc;
+  --ink: #1f2329;
+  --ink-2: #3a3e45;
+  --muted: #5c5f66;
+  --stroke: #232a33;
+  --edge: #2a313b;
+  --accent: #2f6fd1;
+  --accent-ink: #1d3f78;
+  --danger: #b4232b;
+  --ok: #2f9e5b;
+  --repl: #8b7fd6;
+  --press: 0 -1px 0 0 #b5b5b5 inset, 0 0 0 1px rgba(0,0,0,.1) inset, 0 .5px 0 1.5px #fff inset;
+  --pressed: 0 2px 1px 0 rgba(26,26,26,.15) inset, 0 0 0 1px rgba(0,0,0,.08) inset;
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --spring: cubic-bezier(.2,.9,.25,1.25);
+}

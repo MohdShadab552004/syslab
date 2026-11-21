@@ -1,0 +1,508 @@
+import type { DesignDoc, DesignNode, NodeKind, Shape } from '@syslab/types';
+import {
+  DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
+  LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
+  isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
+} from '@syslab/sim';
+import type { FlowPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
+import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
+import { GROUP_CARD, cardCenter, collapsedOwners, groupMembers } from './groups';
+
+/* ------------------------------------------------------------------ */
+/*  View models: plain data the canvas components render, no logic.   */
+/* ------------------------------------------------------------------ */
+
+export type Colors = [string, string, string];
+
+export interface LoadPillView { pct: string; width: number; color: string; hot: boolean }
+
+export interface InstanceView {
+  key: string;
+  dx: number;
+  dy: number;
+  shape: Shape;
+  w: number;
+  h: number;
+  scale: number;
+  colors: Colors;
+  icon: string;
+  label: string;
+  bands: boolean;
+  load: LoadPillView;
+  below: { text: string; info: boolean } | null;
+  draining: boolean;
+}
+
+/** How a queue draws its backlog: lit slots, moving messages, and a state for colour. */
+export interface QueueVisual {
+  /** message slots lit, 0..4 (log scale of the backlog) */
+  filled: number;
+  /** messages are moving through */
+  flowing: boolean;
+  /** seconds for one message to cross the queue */
+  dur: string;
+  state: 'empty' | 'steady' | 'growing' | 'draining' | 'full' | 'down';
+}
+
+export interface NodeView {
+  id: string;
+  kind: NodeKind;
+  /** plain name, shown large when zoomed far out */
+  name: string;
+  left: number;
+  top: number;
+  w: number;
+  h: number;
+  shape: Shape;
+  scale: number;
+  colors: Colors;
+  icon: string;
+  label: string;
+  dashed: boolean;
+  bands: boolean;
+  ghostStack: 0 | 1 | 2;
+  people: { x: number; y: number; c: string }[];
+  load: LoadPillView | null;
+  below: { text: string; info: boolean } | null;
+  warn: string | null;
+  badge: string | null;
+  selected: boolean;
+  pending: boolean;
+  hot: boolean;
+  dim: boolean;
+  crosshair: boolean;
+  extras: InstanceView[];
+  /** drop target state while an edge end is dragged over this node */
+  drop?: 'ok' | 'bad' | null;
+  queue: QueueVisual | null;
+}
+
+export interface PacketView { key: string; dur: string; delay: string; fail: boolean }
+
+export interface LineView {
+  key: string;
+  x: number;
+  y: number;
+  len: number;
+  ang: number;
+  arrowX: number;
+  packets: PacketView[];
+  retract: boolean;
+}
+
+export interface EdgeView {
+  id: string;
+  lines: LineView[];
+  async: boolean;
+  selected: boolean;
+  dim: boolean;
+  label: string;
+  showLabel: boolean;
+  labelX: number;
+  labelY: number;
+  /** drag handles at both ends (selected edge only) */
+  handles: { from: Point; to: Point } | null;
+}
+
+/** Dashed line from the fixed end of a connection to the cursor while its other end is dragged. */
+export interface RewireView { x: number; y: number; len: number; ang: number; dotX: number; dotY: number; valid: boolean }
+
+export interface ReplicationLineView extends LineView { sync: boolean }
+
+export interface FlowSegmentView { key: string; x: number; y: number; len: number; ang: number; state: 'past' | 'cur' | 'next' | 'rec'; token: boolean }
+
+export interface GroupSummaryView { parts: string; status: string; bad: boolean; traffic: string }
+export interface GroupView {
+  id: string; x: number; y: number; w: number; h: number; label: string; border: string; bg: string; selected: boolean;
+  collapsed: boolean;
+  /** what a collapsed card shows */
+  summary: GroupSummaryView | null;
+}
+
+export interface NoteView { id: string; x: number; y: number; text: string; selected: boolean }
+
+export interface CanvasView {
+  nodes: NodeView[];
+  edges: EdgeView[];
+  replication: ReplicationLineView[];
+  flow: FlowSegmentView[];
+  groups: GroupView[];
+  notes: NoteView[];
+  rewire: RewireView | null;
+  /** selection box, world coordinates */
+  marquee: { x: number; y: number; w: number; h: number } | null;
+}
+
+export interface CanvasUi {
+  sel: Selection;
+  pending: string | null;
+  tool: Tool;
+  recording: string | null;
+  flowPlay: FlowPlayback | null;
+  running: boolean;
+  drain: Record<string, number>;
+  isLesson: boolean;
+  rewire: Rewire | null;
+  /** read-only viewers get no drag handles */
+  readOnly?: boolean;
+  multi?: Pick[];
+  marquee?: Marquee | null;
+}
+
+const LETTERS = 'ABCDEFGH';
+const GEO = ['India', 'US', 'EU', 'APAC'];
+
+function loadPill(v: number, down: boolean): LoadPillView {
+  const hot = !down && isOver(v);
+  return {
+    pct: down ? 'offline' : Math.round(v * 100) + '%',
+    width: down ? 0 : Math.min(100, Math.round(v * 100)),
+    color: down ? '#9a9a95' : hot ? '#e5484d' : v >= 0.7 ? '#e09a2c' : '#4f86c9',
+    hot,
+  };
+}
+
+function packets(rps: number, async: boolean, fail: boolean, keyPrefix: string): PacketView[] {
+  const cnt = rps <= 0 ? 0 : rps > 5000 ? 4 : rps > 500 ? 3 : 2;
+  const dur = Math.max(0.9, Math.min(2.6, 2.8 - Math.log10(rps + 1) * 0.38)) * (async ? 1.4 : 1);
+  return Array.from({ length: cnt }, (_, i) => ({
+    key: `${keyPrefix}-${i}`,
+    dur: dur.toFixed(2),
+    delay: (-(i * dur) / cnt).toFixed(2),
+    fail: fail && i === 0,
+  }));
+}
+
+function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false): LineView {
+  const s = segment(a, b);
+  return { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+}
+
+/** % of a load balancer's traffic that goes down one of its connections (null with fewer than two). */
+function lbEdgeShare(doc: DesignDoc, sim: SimResult, lbId: string, edgeId: string): number | null {
+  const out = doc.edges.filter((x) => x.from === lbId && sim.byId.has(x.to));
+  if (out.length < 2) return null;
+  const total = out.reduce((s, x) => s + (sim.edgeRps[x.id] ?? 0), 0);
+  return total > 0 ? Math.round(((sim.edgeRps[edgeId] ?? 0) / total) * 100) : 0;
+}
+
+/** Collapses doc + simulation + ui state into what the canvas draws. Pure. */
+export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): CanvasView {
+  const { sel, flowPlay, recording } = ui;
+  const flowShown = doc.flows.find((f) => f.id === (flowPlay?.id ?? recording));
+  const playing = !!flowPlay && !!flowShown;
+  const stepsOf = new Map<string, number[]>();
+  flowShown?.steps.forEach((id, i) => stepsOf.set(id, [...(stepsOf.get(id) ?? []), i + 1]));
+
+  // collapsed groups hide their members; connections and flows attach to the card instead
+  const owners = collapsedOwners(doc);
+  const groupById = new Map(doc.groups.map((g) => [g.id, g]));
+  const ownerOf = (type: 'node' | 'note' | 'group', id: string) => owners.get(`${type}:${id}`);
+  const positions = new Map<string, Point[]>();
+  for (const n of doc.nodes) {
+    const og = ownerOf('node', n.id);
+    positions.set(n.id, og ? [cardCenter(groupById.get(og)!)] : instancePositions(n, sim));
+  }
+
+  /* ---------- selection set (single or many) ---------- */
+  const multi = ui.multi ?? [];
+  const picked = new Set(multi.map((p) => `${p.type}:${p.id}`));
+  if (sel && sel.type !== 'edge') picked.add(`${sel.type}:${sel.id}`);
+  const isPicked = (type: string, id: string) => picked.has(`${type}:${id}`);
+
+  /* ---------- rewire drag ---------- */
+  const rw = ui.rewire;
+  const rwEdge = rw ? doc.edges.find((x) => x.id === rw.edgeId) : undefined;
+  const dropOf = (id: string): 'ok' | 'bad' | null =>
+    rw && rwEdge && rw.over === id ? (canRewire(doc, rw.edgeId, rw.end, id) ? 'ok' : 'bad') : null;
+
+  /* ---------- nodes ---------- */
+  const nodes: NodeView[] = doc.nodes.filter((n) => !ownerOf('node', n.id)).map((n) => ({ ...buildNode(n, sim, ui, positions.get(n.id)!, stepsOf, playing), drop: dropOf(n.id), selected: isPicked('node', n.id) }));
+
+  /* ---------- edges ---------- */
+  const edges: EdgeView[] = [];
+  // connections into / out of a collapsed group merge into one line per neighbour
+  const merged = new Map<string, { rps: number; count: number }>();
+  const mergeKey = (e: { from: string; to: string }) => {
+    const ga = ownerOf('node', e.from), gb = ownerOf('node', e.to);
+    if (!ga && !gb) return null;
+    if (ga && ga === gb) return 'internal';
+    return `${ga ? 'g:' + ga : e.from}>${gb ? 'g:' + gb : e.to}`;
+  };
+  for (const e of doc.edges) {
+    const k = mergeKey(e);
+    if (!k || k === 'internal') continue;
+    const m = merged.get(k) ?? { rps: 0, count: 0 };
+    m.rps += sim.edgeRps[e.id] ?? 0; m.count++;
+    merged.set(k, m);
+  }
+  const drawnMerged = new Set<string>();
+  const CARD_R = Math.min(GROUP_CARD.w, GROUP_CARD.h) / 2;
+  for (const e of doc.edges) {
+    const a = sim.byId.get(e.from), b = sim.byId.get(e.to);
+    if (!a || !b) continue;
+    const mk = mergeKey(e);
+    if (mk === 'internal') continue;
+    if (mk) { if (drawnMerged.has(mk)) continue; drawnMerged.add(mk); }
+    const intoCard = !!ownerOf('node', b.id);
+    const A = positions.get(a.id)!, B = positions.get(b.id)!;
+    const kb = KINDS[b.kind];
+    const r = intoCard ? CARD_R : (Math.min(kb.w, kb.h) / 2 - 4) * nodeScale(b, sim);
+    const agg = mk ? merged.get(mk)! : null;
+    const rps = agg ? agg.rps : sim.edgeRps[e.id] ?? 0;
+    const fail = (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.load[b.id] ?? 0));
+
+    const pairs: [Point, Point, number][] = [];
+    if (agg) pairs.push([A[0], B[0], 1]);
+    else if (A.length > 1) A.forEach((p) => pairs.push([p, B[0], 1]));
+    else if (isDbCluster(b)) {
+      const L = dbLayout(b);
+      L.primaries.forEach((p, s) => {
+        if (e.op !== 'read' || L.shown.replicas === 0) pairs.push([A[0], p, 1]);
+        if (e.op !== 'write') L.replicas[s].forEach((q) => pairs.push([A[0], q, DB_REPLICA_SCALE]));
+      });
+    } else if (B.length > 1 && (isBalancer(a) || a.kind === 'queue')) B.forEach((p) => pairs.push([A[0], p, 1]));
+    else pairs.push([A[0], B[0], 1]);
+
+    const draining = (node: DesignNode, list: Point[]) => list.length > 1 && !!ui.drain[node.id] && (sim.reps[node.id] ?? 0) <= list.length;
+    const drainTo = draining(b, B) && pairs.length === B.length;
+    const drainFrom = draining(a, A) && pairs.length === A.length;
+    const each = rps / pairs.length;
+    const perRep = !agg && a.kind === 'lb' && pairs.length === B.length ? sim.edgeRepRps[e.id] : undefined;
+    const isSel = sel?.type === 'edge' && sel.id === e.id;
+    // with several items selected, connections between them light up too (they get copied with them)
+    const inMulti = multi.length > 1 && isPicked('node', e.from) && isPicked('node', e.to);
+    const ka = KINDS[a.kind];
+    const rA = ownerOf('node', a.id) ? CARD_R : (Math.min(ka.w, ka.h) / 2 - 4) * nodeScale(a, sim);
+    const seg0 = segment(A[0], B[0]);
+    const ux = seg0.len > 0 ? (B[0].x - A[0].x) / seg0.len : 0, uy = seg0.len > 0 ? (B[0].y - A[0].y) / seg0.len : 0;
+    const handles = isSel && !agg && !ui.readOnly && !playing && !rw
+      ? { from: { x: Math.round(A[0].x + ux * rA), y: Math.round(A[0].y + uy * rA) }, to: { x: Math.round(B[0].x - ux * (r + 2)), y: Math.round(B[0].y - uy * (r + 2)) } }
+      : null;
+    const lbShare = a.kind === 'lb' ? lbEdgeShare(doc, sim, a.id, e.id) : null;
+
+    edges.push({
+      id: e.id,
+      lines: pairs.map(([p, q, scale], i) => {
+        const rpsI = perRep ? perRep[i] ?? 0 : each;
+        const failI = perRep ? (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.repLoad[b.id]?.[i] ?? 0)) : fail;
+        return line(`${e.id}-${i}`, p, q, r * scale, ui.running ? packets(rpsI, e.mode === 'async', failI, `${e.id}-${i}`) : [], i === pairs.length - 1 && (drainTo || drainFrom));
+      }),
+      async: e.mode === 'async',
+      selected: isSel || inMulti,
+      dim: playing || rw?.edgeId === e.id,
+      label: agg && agg.count > 1
+        ? `${agg.count} connections`
+        : (e.route ? e.route + ' · ' : '') + e.proto + (e.mode === 'async' ? ' · async' : '') + (e.op !== 'both' ? ' · ' + e.op : '') + (lbShare != null ? ` · ${lbShare}%` : ''),
+      showLabel: !ui.isLesson || isSel,
+      labelX: Math.round((A[0].x + B[0].x) / 2),
+      labelY: Math.round((A[0].y + B[0].y) / 2),
+      handles,
+    });
+  }
+
+  /* ---------- rewire ghost ---------- */
+  let rewire: RewireView | null = null;
+  if (rw && rwEdge) {
+    const fixed = positions.get(rw.end === 'to' ? rwEdge.from : rwEdge.to)?.[0];
+    if (fixed) {
+      const p = { x: rw.x, y: rw.y };
+      const s = rw.end === 'to' ? segment(fixed, p) : segment(p, fixed);
+      rewire = {
+        x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), dotX: Math.round(p.x), dotY: Math.round(p.y),
+        valid: !rw.over || canRewire(doc, rw.edgeId, rw.end, rw.over),
+      };
+    }
+  }
+
+  /* ---------- db replication ---------- */
+  const replication: ReplicationLineView[] = [];
+  for (const n of doc.nodes) {
+    if (!isDbCluster(n) || ownerOf('node', n.id)) continue;
+    const L = dbLayout(n), D = dbConfig(n), k = KINDS[n.kind];
+    const live = ui.running && !n.down && (sim.inflow[n.id] ?? 0) > 0;
+    const dur = D.sync ? 0.7 : 1.8;
+    L.primaries.forEach((p, s) => L.replicas[s].forEach((q, j) => {
+      const key = `${n.id}-r${s}-${j}`;
+      const pk: PacketView[] = live ? [0, 1].map((i) => ({ key: `${key}-${i}`, dur: dur.toFixed(2), delay: (-(i * dur) / 2).toFixed(2), fail: false })) : [];
+      replication.push({ ...line(key, p, q, (Math.min(k.w, k.h) / 2 - 4) * DB_REPLICA_SCALE, pk), sync: D.sync });
+    }));
+  }
+
+  /* ---------- flow overlay ---------- */
+  const flow: FlowSegmentView[] = [];
+  if (flowShown) {
+    for (let i = 0; i < flowShown.steps.length - 1; i++) {
+      const a = positions.get(flowShown.steps[i])?.[0], b = positions.get(flowShown.steps[i + 1])?.[0];
+      if (!a || !b) continue;
+      const s = segment(a, b);
+      const idx = flowPlay?.idx ?? -1;
+      flow.push({
+        key: `fs-${i}`, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2),
+        state: !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next',
+        token: !!flowPlay && i === idx,
+      });
+    }
+  }
+
+  const groups: GroupView[] = doc.groups.filter((g) => !ownerOf('group', g.id)).map((g) => {
+    let summary: GroupSummaryView | null = null;
+    if (g.collapsed) {
+      const m = groupMembers(doc, g);
+      const inside = new Set(m.nodes);
+      const ns = doc.nodes.filter((n) => inside.has(n.id));
+      const hot = ns.filter((n) => !n.down && isOver(sim.load[n.id] ?? 0));
+      const down = ns.filter((n) => n.down);
+      const busiest = ns.filter((n) => n.kind !== 'users' && !n.down).sort((x, y) => (sim.load[y.id] ?? 0) - (sim.load[x.id] ?? 0))[0];
+      const inRps = doc.edges.filter((e) => inside.has(e.to) && !inside.has(e.from)).reduce((t, e) => t + (sim.edgeRps[e.id] ?? 0), 0);
+      const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+      summary = {
+        parts: [plural(ns.length, 'component'), m.notes.length ? plural(m.notes.length, 'note') : '', m.groups.length ? plural(m.groups.length, 'group') : ''].filter(Boolean).join(' · '),
+        status: hot.length
+          ? `${hot.length} overloaded · ${hot[0].label} ${Math.round((sim.load[hot[0].id] ?? 0) * 100)}%`
+          : down.length ? `${down.length} offline · ${down[0].label}`
+          : busiest ? `healthy · busiest ${busiest.label} ${Math.round((sim.load[busiest.id] ?? 0) * 100)}%` : 'empty',
+        bad: hot.length > 0 || down.length > 0,
+        traffic: inRps > 0 ? `${fmtCompact(inRps)} rps in` : '',
+      };
+    }
+    return {
+      id: g.id, x: g.x, y: g.y,
+      w: g.collapsed ? GROUP_CARD.w : g.w, h: g.collapsed ? GROUP_CARD.h : g.h,
+      label: g.label,
+      border: GROUP_COLORS[g.color]?.border ?? GROUP_COLORS.blue.border,
+      bg: GROUP_COLORS[g.color]?.bg ?? GROUP_COLORS.blue.bg,
+      selected: isPicked('group', g.id),
+      collapsed: !!g.collapsed,
+      summary,
+    };
+  });
+  const notes: NoteView[] = doc.notes.filter((t) => !ownerOf('note', t.id)).map((t) => ({ ...t, selected: isPicked('note', t.id) }));
+
+  const mq = ui.marquee;
+  const marquee = mq ? { x: Math.min(mq.x1, mq.x2), y: Math.min(mq.y1, mq.y2), w: Math.abs(mq.x2 - mq.x1), h: Math.abs(mq.y2 - mq.y1) } : null;
+
+  return { nodes, edges, replication, flow, groups, notes, rewire, marquee };
+}
+
+function buildNode(
+  n: DesignNode, sim: SimResult, ui: CanvasUi, pos: Point[], stepsOf: Map<string, number[]>, playing: boolean,
+): NodeView {
+  const k = KINDS[n.kind];
+  const ld = sim.load[n.id] ?? 0;
+  const lp = loadPill(ld, n.down);
+  const colors: Colors = n.down ? DOWN_COLORS : lp.hot ? HOT_COLORS : k.colors;
+  const sizeIdx = sim.sizeIdx[n.id] ?? n.size;
+  const sz = SIZES[sizeIdx];
+  const reps = sim.reps[n.id] ?? 1;
+  const fanned = isFanned(n, sim);
+  const scale = nodeScale(n, sim);
+  const p0 = pos[0];
+  const isUsers = n.kind === 'users';
+
+  const spec = k.perCpu ? `${sz.cpu} vCPU · ${sz.ram} GB` : '';
+  const auto = isHorizontalAuto(n);
+  const repTxt = sim.needsLB[n.id] ? '' : isVerticalAuto(n) ? 'auto-size' : auto ? `auto ×${reps}${fanned ? ` (${n.autoscale.min}–${n.autoscale.max})` : ''}` : reps > 1 ? `×${reps}` : '';
+  const algoTxt = n.kind === 'lb' ? LB_ALGOS.find((x) => x.key === lbConfig(n).algo)?.name ?? '' : '';
+  let below = isUsers ? `${fmtInt(sim.users)} users` : k.shape === 'cube' ? [spec, repTxt].filter(Boolean).join(' · ') : [n.label, algoTxt, spec, repTxt].filter(Boolean).join(' · ');
+  if (fanned && reps > pos.length) below += ` · +${reps - pos.length} more`;
+
+  let warn: string | null = null;
+  if (n.down) warn = n.kind === 'cache' ? 'offline · reads fall through to DB' : 'node offline';
+  else if (sim.needsLB[n.id]) warn = 'needs a load balancer';
+  else if (lp.hot) warn = n.kind === 'ext' ? 'rate limited' : auto && reps >= n.autoscale.max ? 'hit max replicas' : k.perCpu && sizeIdx === 4 && reps === 1 ? 'largest machine you can buy' : 'over capacity';
+
+  const repPill = (i: number) => (sim.repLoad[n.id]?.[i] != null ? loadPill(sim.repLoad[n.id][i], n.down) : lp);
+  const repColors = (pill: LoadPillView): Colors => (n.down ? DOWN_COLORS : pill.hot ? HOT_COLORS : k.colors);
+  let load: LoadPillView | null = isUsers ? null : fanned ? repPill(0) : lp;
+  let bands = false;
+  const extras: InstanceView[] = [];
+  const draining = !!ui.drain[n.id] && fanned && reps <= pos.length;
+
+  if (fanned) {
+    pos.slice(1).forEach((p, j) => {
+      const isLast = j === pos.length - 2;
+      const pill = repPill(j + 1);
+      extras.push({
+        key: `${n.id}-x${j}`, dx: p.x - p0.x, dy: p.y - p0.y, shape: k.shape, w: k.w, h: k.h, scale, colors: repColors(pill), icon: ICONS[n.kind],
+        label: `${n.label} ${LETTERS[j + 1]}`, bands: false,
+        load: draining && isLast ? { ...pill, pct: 'draining' } : pill,
+        below: isLast ? { text: below, info: false } : null,
+        draining: draining && isLast,
+      });
+    });
+  }
+
+  if (n.kind === 'db') {
+    const D = dbConfig(n);
+    bands = D.partition !== 'none';
+    const partTxt = bands ? `${D.parts} partitions by ${D.partKey}` : '';
+    if (isDbCluster(n)) {
+      const L = dbLayout(n), dl = sim.dbLoad[n.id] ?? { w: 0, r: 0 };
+      const w = loadPill(dl.w, n.down), r = loadPill(dl.r, n.down);
+      const shardTxt = (s: number) => (D.shards > 1
+        ? `Shard ${s + 1} · ${D.strategy === 'hash' ? `hash(${D.shardKey}) % ${D.shards} = ${s}` : D.strategy === 'geo' ? GEO[s % 4] : `${D.shardKey} range ${s + 1}/${D.shards}`}`
+        : `${n.label} · primary`);
+      const more = (D.shards > L.shown.shards ? ` · +${D.shards - L.shown.shards} shards` : '') + (D.replicas > L.shown.replicas ? ` · +${D.replicas - L.shown.replicas} replicas` : '');
+      load = w;
+      below = shardTxt(0) + (partTxt ? ` · ${partTxt}` : '') + more;
+      L.primaries.slice(1).forEach((p, i) => extras.push({
+        key: `${n.id}-s${i}`, dx: p.x - p0.x, dy: 0, shape: 'db', w: k.w, h: k.h, scale: 1, colors, icon: ICONS.db,
+        label: '', bands, load: w, below: { text: shardTxt(i + 1), info: false }, draining: false,
+      }));
+      L.replicas.forEach((row, s) => row.forEach((q, j) => extras.push({
+        key: `${n.id}-r${s}-${j}`, dx: q.x - p0.x, dy: q.y - p0.y, shape: 'db', w: k.w, h: k.h, scale: DB_REPLICA_SCALE,
+        colors: n.down ? colors : REPLICA_COLORS, icon: ICONS.db, label: '', bands, load: r,
+        below: j === 0 ? { text: `${D.replicas > 1 ? `read replicas ×${D.replicas}` : 'read replica'} · ${D.sync ? 'sync' : 'async'}`, info: true } : null,
+        draining: false,
+      })));
+    } else if (partTxt) below += ` · ${partTxt}`;
+  }
+
+  let queue: QueueVisual | null = null;
+  if (n.kind === 'queue') {
+    const q = sim.queue[n.id];
+    const depth = q?.depth ?? 0, growth = q?.growth ?? 0;
+    const fill = depth > 0.5 ? Math.log10(1 + depth) / Math.log10(1 + QUEUE_MAX) : 0;
+    const state: QueueVisual['state'] = n.down ? 'down' : q?.full ? 'full' : growth > 0.5 ? 'growing' : growth < -0.5 ? 'draining' : depth > 0.5 ? 'steady' : 'empty';
+    const color = { full: '#e5484d', growing: '#e09a2c', draining: '#3f9b6b', steady: '#4f86c9', empty: '#4f86c9', down: '#9a9a95' }[state];
+    load = { pct: n.down ? 'offline' : `${fmtCompact(depth)} msgs`, width: Math.round(fill * 100), color, hot: state === 'full' };
+    const trend = state === 'growing' ? `+${fmtCompact(growth)}/s`
+      : state === 'draining' ? `empty in ~${Math.max(1, Math.ceil(depth / -growth))}s`
+      : state === 'full' ? 'full' : (q?.inRate ?? 0) > 0 ? `${fmtCompact(q!.inRate)}/s flowing` : 'idle';
+    below = [n.label, trend].join(' · ');
+    if (!n.down && q?.full) warn = 'queue full · rejecting messages';
+    else if (!n.down && q && q.inRate > 0 && q.consumers === 0) warn = 'no consumer · messages pile up';
+    const rate = Math.max(q?.inRate ?? 0, q?.outRate ?? 0);
+    queue = {
+      filled: depth > 0.5 ? Math.max(1, Math.ceil(fill * 4)) : 0,
+      flowing: ui.running && !n.down && rate > 0,
+      dur: Math.max(0.8, Math.min(2.6, 2.8 - Math.log10(rate + 1) * 0.4)).toFixed(2),
+      state,
+    };
+  }
+
+  const steps = stepsOf.get(n.id);
+  return {
+    id: n.id, kind: n.kind,
+    left: p0.x - k.w / 2, top: p0.y - k.h / 2, w: k.w, h: k.h,
+    shape: k.shape, scale, colors: fanned && load ? repColors(load) : colors, icon: ICONS[n.kind],
+    label: fanned ? `${n.label} A` : n.label,
+    name: n.label,
+    dashed: n.kind === 'ext',
+    bands,
+    ghostStack: !k.canAuto && k.shape === 'cube' ? (reps >= 3 ? 2 : reps >= 2 ? 1 : 0) : 0,
+    people: isUsers ? crowd(sim.users) : [],
+    load,
+    below: below && !fanned ? { text: below, info: false } : null,
+    warn,
+    badge: steps ? steps.join(',') : null,
+    selected: ui.sel?.type === 'node' && ui.sel.id === n.id,
+    pending: ui.pending === n.id,
+    hot: (fanned && load ? load.hot : lp.hot) && ui.running,
+    dim: playing && !steps,
+    crosshair: ui.tool === 'connect' || !!ui.recording,
+    extras,
+    queue,
+  };
+}

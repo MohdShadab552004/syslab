@@ -1,0 +1,51 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  designs   Design[]
+}
+
+/// One editable system design. The whole graph lives in `doc` (JSONB):
+/// the editor always loads and saves it as one unit, so a document column
+/// beats normalised node/edge tables (one read, one write, no joins).
+model Design {
+  id           String          @id @default(cuid())
+  ownerId      String
+  owner        User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name         String
+  doc          Json
+  /// denormalised counts + preview kinds so list pages never read `doc`
+  summary      Json
+  /// optimistic concurrency counter, bumped on every write
+  revision     Int             @default(1)
+  shareEnabled Boolean         @default(false)
+  shareToken   String?         @unique
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  versions     DesignVersion[]
+
+  @@index([ownerId, updatedAt(sort: Desc)])
+}
+
+model DesignVersion {
+  id        String   @id @default(cuid())
+  designId  String
+  design    Design   @relation(fields: [designId], references: [id], onDelete: Cascade)
+  name      String
+  note      String   @default("")
+  snapshot  Json
+  createdAt DateTime @default(now())
+
+  @@index([designId, createdAt(sort: Desc)])
+}
