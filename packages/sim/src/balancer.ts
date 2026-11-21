@@ -26,7 +26,7 @@ export const LB_ALGOS: { key: LbAlgorithm; name: string; sub: string; hint: stri
   },
   {
     key: 'lc', name: 'Least connections', sub: 'fewest open',
-    hint: 'Each new request goes to the server with the fewest open connections. When a server slows down, its requests pile up and it gets fewer new ones, so the LB adapts on its own. At low traffic it behaves like round robin.',
+    hint: 'Each new request goes to the server with the fewest open connections. When a server slows down, its requests pile up and it gets fewer new ones, so the LB adapts on its own. At low traffic, or with identical servers, it splits like round robin; give the servers different sizes to see it adapt.',
   },
   {
     key: 'hash', name: 'IP hash', sub: 'sticky clients',

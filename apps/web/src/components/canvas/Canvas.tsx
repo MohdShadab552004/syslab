@@ -3,7 +3,7 @@ import { cx } from '@/lib/utils/cx';
 import type { CanvasView } from '@/lib/canvas/buildCanvasView';
 import type { CanvasHandlers } from '@/hooks/editor/useCanvasInteractions';
 import type { Camera } from '@/hooks/editor/useCamera';
-import { EdgeHandles, EdgeLabels, EdgeLayer, FlowLayer, RewireGhost } from './EdgeLayer';
+import { EdgeHandles, EdgeLabels, EdgeLayer, FlowLayer, LineTags, RewireGhost } from './EdgeLayer';
 import { GroupBox } from './GroupBox';
 import { NodeView } from './NodeView';
 import { StickyNote } from './StickyNote';
@@ -60,6 +60,7 @@ export const Canvas = memo(function Canvas({ view, handlers: h, camera: c, onNot
         <EdgeLayer edges={view.edges} replication={view.replication} />
         <FlowLayer segments={view.flow} />
         <EdgeLabels edges={view.edges} onPick={h.onEdgePick ?? noop} />
+        <LineTags edges={view.edges} />
         {view.nodes.map((n) => <NodeView key={n.id} v={n} onPointerDown={h.onNodePointerDown ?? noop} />)}
         {view.notes.map((t) => <StickyNote key={t.id} v={t} onMove={h.onNotePointerDown ?? noop} onFocus={h.onNoteFocus ?? noop} onText={onNoteText} />)}
         {h.onEdgeHandleDown && <EdgeHandles edges={view.edges} onDown={h.onEdgeHandleDown} />}

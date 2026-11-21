@@ -77,7 +77,11 @@ export interface NodeView {
   queue: QueueVisual | null;
 }
 
-export interface PacketView { key: string; dur: string; delay: string; fail: boolean }
+/** tone: colour of a client (IP hash shows the same colour always reaching the same server) */
+export interface PacketView { key: string; dur: string; delay: string; fail: boolean; tone?: number }
+
+/** Small label on a load balancer → server line: share, weight, open connections… */
+export interface LineTagView { text: string; x: number; y: number; hot: boolean }
 
 export interface LineView {
   key: string;
@@ -88,6 +92,7 @@ export interface LineView {
   arrowX: number;
   packets: PacketView[];
   retract: boolean;
+  tag?: LineTagView;
 }
 
 export interface EdgeView {
@@ -162,14 +167,36 @@ function loadPill(v: number, down: boolean): LoadPillView {
   };
 }
 
+/** Below this a line is idle: less than one request every two seconds is not worth animating. */
+const MIN_VISIBLE_RPS = 0.5;
+const TONES = 6;
+
 function packets(rps: number, async: boolean, fail: boolean, keyPrefix: string): PacketView[] {
-  const cnt = rps <= 0 ? 0 : rps > 5000 ? 4 : rps > 500 ? 3 : 2;
+  const cnt = rps < MIN_VISIBLE_RPS ? 0 : rps > 5000 ? 4 : rps > 500 ? 3 : 2;
   const dur = Math.max(0.9, Math.min(2.6, 2.8 - Math.log10(rps + 1) * 0.38)) * (async ? 1.4 : 1);
   return Array.from({ length: cnt }, (_, i) => ({
     key: `${keyPrefix}-${i}`,
     dur: dur.toFixed(2),
     delay: (-(i * dur) / cnt).toFixed(2),
     fail: fail && i === 0,
+  }));
+}
+
+/**
+ * Packets from a load balancer to one backend, drawn so the algorithm is visible:
+ * density follows the backend's share; round robin / weighted staggers backends so
+ * requests visibly take turns; IP hash colours each backend's clients consistently.
+ */
+function lbPackets(rps: number, share: number, idx: number, n: number, algo: string, dur: number, fail: boolean, keyPrefix: string): PacketView[] {
+  if (rps < MIN_VISIBLE_RPS || share <= 0) return [];
+  const cnt = Math.max(1, Math.min(8, Math.round(share * 8)));
+  const turn = algo === 'rr' || algo === 'wrr' ? (idx * dur) / (cnt * Math.max(1, n)) : 0;
+  return Array.from({ length: cnt }, (_, j) => ({
+    key: `${keyPrefix}-${j}`,
+    dur: dur.toFixed(2),
+    delay: (-((j * dur) / cnt) - turn).toFixed(2),
+    fail: fail && j === 0,
+    tone: algo === 'hash' ? idx % TONES : undefined,
   }));
 }
 
@@ -269,6 +296,13 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     const drainFrom = draining(a, A) && pairs.length === A.length;
     const each = rps / pairs.length;
     const perRep = !agg && a.kind === 'lb' && pairs.length === B.length ? sim.edgeRepRps[e.id] : undefined;
+    // load balancer → backend lines show the algorithm (share, turns, weights, connections, stickiness)
+    const lbAlgo = !agg && a.kind === 'lb' ? lbConfig(a).algo : null;
+    const lbList = lbAlgo ? (sim.lbBackends[a.id] ?? []).filter((x) => !x.down) : [];
+    const lbOut = lbAlgo ? doc.edges.filter((x) => x.from === a.id).reduce((t, x) => t + (sim.edgeRepRps[x.id] ?? []).reduce((u, v) => u + v, 0), 0) : 0;
+    const lbDur = Math.max(0.9, Math.min(2.6, 2.8 - Math.log10(lbOut + 1) * 0.38));
+    // clients entering an IP-hash balancer get colours too, so the stickiness is visible end to end
+    const intoHash = !agg && b.kind === 'lb' && lbConfig(b).algo === 'hash';
     const isSel = sel?.type === 'edge' && sel.id === e.id;
     // with several items selected, connections between them light up too (they get copied with them)
     const inMulti = multi.length > 1 && isPicked('node', e.from) && isPicked('node', e.to);
@@ -286,7 +320,31 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       lines: pairs.map(([p, q, scale], i) => {
         const rpsI = perRep ? perRep[i] ?? 0 : each;
         const failI = perRep ? (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.repLoad[b.id]?.[i] ?? 0)) : fail;
-        return line(`${e.id}-${i}`, p, q, r * scale, ui.running ? packets(rpsI, e.mode === 'async', failI, `${e.id}-${i}`) : [], i === pairs.length - 1 && (drainTo || drainFrom));
+        const key = `${e.id}-${i}`;
+        const retract = i === pairs.length - 1 && (drainTo || drainFrom);
+        if (lbAlgo) {
+          // one line per replica when fanned, otherwise one line for the whole target
+          const mine = perRep ? lbList.filter((x) => x.edgeId === e.id && x.replica === i) : lbList.filter((x) => x.edgeId === e.id);
+          const share = mine.reduce((t, x) => t + x.share, 0);
+          const lineRps = mine.reduce((t, x) => t + x.rps, 0);
+          const idx = Math.max(0, lbList.findIndex((x) => x === mine[0]));
+          const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failI, key) : [];
+          const lv = line(key, p, q, r * scale, pk, retract);
+          if (lbList.length > 1 && lineRps >= MIN_VISIBLE_RPS) {
+            const pct = `${Math.round(share * 100)}%`;
+            const lat = (sim.nodeLatency[b.id] ?? KINDS[b.kind].lat) / 1000;
+            const text = lbAlgo === 'rr' ? `1 in ${lbList.length} · ${pct}`
+              : lbAlgo === 'wrr' ? `w${e.weight || 1} · ${pct}`
+              : lbAlgo === 'lc' ? `${fmtCompact(lineRps * lat)} conns · ${pct}`
+              : `${pct} of users`;
+            const t = 0.68;
+            lv.tag = { text, x: Math.round(p.x + (q.x - p.x) * t), y: Math.round(p.y + (q.y - p.y) * t), hot: failI && !b.down };
+          }
+          return lv;
+        }
+        let pk = ui.running ? packets(rpsI, e.mode === 'async', failI, key) : [];
+        if (intoHash) pk = pk.map((x, j) => ({ ...x, tone: j % TONES }));
+        return line(key, p, q, r * scale, pk, retract);
       }),
       async: e.mode === 'async',
       selected: isSel || inMulti,

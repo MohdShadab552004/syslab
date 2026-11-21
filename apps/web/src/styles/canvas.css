@@ -223,3 +223,16 @@
 .lod-far .gcard-far { display: flex; }
 .lod-far .group.collapsed > :not(.gcard-far) { visibility: hidden; }
 .lod-far .group.collapsed { background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232a313b' stroke-width='2'%3E%3Cpath d='M4 4h16v16H4z'/%3E%3Cpath d='M4 9h16M9 9v11'/%3E%3C/svg%3E") center / 34% no-repeat; }
+
+/* load balancer algorithm visuals */
+.etag { position: absolute; z-index: 4; transform: translate(-50%, -50%); pointer-events: none; white-space: nowrap;
+  font: 800 9px var(--font); padding: 2px 6px; border-radius: 6px; background: #303030; color: #fff; box-shadow: 0 1px 0 #000; }
+.etag.hot { background: var(--danger); box-shadow: 0 1px 0 #8f1d22; }
+.lod-far .etag { display: none; }
+/* client colours for IP hash: one colour = one group of users, always the same server */
+.pkt.t0 { background: #f2bf73; }
+.pkt.t1 { background: #7fb6ec; }
+.pkt.t2 { background: #8fd3a8; }
+.pkt.t3 { background: #c9a7f0; }
+.pkt.t4 { background: #f09aa8; }
+.pkt.t5 { background: #8dd8d8; }

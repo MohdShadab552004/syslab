@@ -34,7 +34,7 @@ export function useMetrics() {
       usersText: `${fmtInt(sim.users)} users`,
       rpsText: fmtCompact(sim.rps),
       costText: fmtMoney(sim.cost),
-      bottleneck: b ? { text: `${b.node.label} · ${Math.round(b.load * 100)}%`, bad: isOver(b.load) } : { text: '—', bad: false },
+      bottleneck: b && sim.rps > 0 ? { text: `${b.node.label} · ${Math.round(b.load * 100)}%`, bad: isOver(b.load) } : { text: '—', bad: false },
       nodeCount: doc.nodes.length,
       edgeCount: doc.edges.length,
     };
