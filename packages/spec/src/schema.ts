@@ -46,6 +46,9 @@ export const ComponentSpec = z.object({
     algorithm: z.enum(LB_ALGORITHM_VALUES).optional(),
     virtualNodes: z.union([z.literal(1), z.literal(10), z.literal(100)]).optional().describe('ip_hash only'),
   }).optional().describe('Only for kind lb.'),
+  cache: z.object({
+    ttlSeconds: z.number().int().min(1).max(86_400).optional().describe('How long a key lives. If the database goes down, the cache keeps answering hits until its keys expire. Default 60.'),
+  }).optional().describe('Only for kind cache.'),
   offline: z.boolean().optional().describe('Start this component switched off (to show a failure).'),
 });
 

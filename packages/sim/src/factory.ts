@@ -1,5 +1,5 @@
 import type {
-  AutoscaleConfig, DbConfig, DesignDoc, DesignEdge, DesignNode, LbConfig, NodeKind, Requirements,
+  AutoscaleConfig, CacheConfig, DbConfig, DesignDoc, DesignEdge, DesignNode, LbConfig, NodeKind, Requirements,
 } from '@syslab/types';
 import { TECHS } from './catalog';
 
@@ -17,6 +17,8 @@ export const DEFAULT_DB: DbConfig = {
 };
 
 export const DEFAULT_LB: LbConfig = { algo: 'rr', vnodes: 10 };
+
+export const DEFAULT_CACHE: CacheConfig = { ttl: 60 };
 
 const DEFAULT_SIZE: Partial<Record<NodeKind, number>> = { app: 2, worker: 1, cache: 1, db: 2 };
 
@@ -62,6 +64,10 @@ export function dbConfig(n: DesignNode): DbConfig {
 
 export function lbConfig(n: DesignNode): LbConfig {
   return { ...DEFAULT_LB, ...(n.lbc ?? {}) };
+}
+
+export function cacheConfig(n: DesignNode): CacheConfig {
+  return { ...DEFAULT_CACHE, ...(n.cachec ?? {}) };
 }
 
 export function autoscale(n: DesignNode): AutoscaleConfig {

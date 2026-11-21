@@ -1,5 +1,5 @@
 import type { DesignDoc } from '@syslab/types';
-import { EMPTY_RUNTIME, LB_ALGOS, OVERLOAD, fmtCompact, fmtMoney, fmtMs, lbConfig, simulate, stepRuntime, type Runtime } from '@syslab/sim';
+import { CACHE_HIT, EMPTY_RUNTIME, LB_ALGOS, cacheConfig, OVERLOAD, fmtCompact, fmtMoney, fmtMs, lbConfig, simulate, stepRuntime, type Runtime } from '@syslab/sim';
 
 export interface SimulationReport {
   users: number;
@@ -11,6 +11,8 @@ export interface SimulationReport {
   monthlyCostUsd: number;
   overloaded: { component: string; loadPercent: number }[];
   busiest: { component: string; loadPercent: number } | null;
+  /** every component except users: traffic it receives and how full it is */
+  components: { component: string; kind: string; requestsPerSecond: number; loadPercent: number; offline: boolean }[];
   scaling: string[];
   queues: { component: string; waitingMessages: number; changePerSecond: number }[];
   loadBalancers: { component: string; algorithm: string; split: string }[];
@@ -24,7 +26,7 @@ export interface SimulationReport {
  */
 export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?: number; seconds?: number } = {}): SimulationReport {
   const d: DesignDoc = opts.users != null ? { ...doc, users: Math.max(0, Math.round(opts.users)) } : doc;
-  let rt: Runtime = { ...EMPTY_RUNTIME, autoRep: {}, drain: {}, autoSize: {}, qDepth: {}, spike: opts.spike ?? 1 };
+  let rt: Runtime = { ...EMPTY_RUNTIME, autoRep: {}, drain: {}, autoSize: {}, qDepth: {}, cacheHit: {}, spike: opts.spike ?? 1 };
   const scaling: string[] = [];
   const seconds = Math.min(300, Math.max(0, opts.seconds ?? 60));
   for (let t = 0; t < seconds; t++) {
@@ -41,6 +43,10 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     .sort((a, b) => b.loadPercent - a.loadPercent);
   const top = [...live].sort((a, b) => (sim.load[b.id] ?? 0) - (sim.load[a.id] ?? 0))[0];
   const busiest = top && sim.rps > 0 ? { component: top.label, loadPercent: Math.round((sim.load[top.id] ?? 0) * 100) } : null;
+  const components = live.concat(d.nodes.filter((n) => n.down)).map((n) => ({
+    component: n.label, kind: n.kind, requestsPerSecond: Math.round(sim.inflow[n.id] ?? 0),
+    loadPercent: n.down ? 0 : Math.round((sim.load[n.id] ?? 0) * 100), offline: !!n.down,
+  }));
   const queues = d.nodes.filter((n) => n.kind === 'queue' && sim.queue[n.id]).map((n) => ({
     component: n.label, waitingMessages: Math.round(sim.queue[n.id].depth), changePerSecond: Math.round(sim.queue[n.id].growth),
   }));
@@ -58,6 +64,14 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.`,
     `Errors: ${(sim.errorRate * 100).toFixed(1)}%. Cost: ${fmtMoney(sim.cost)}/month.`,
     overloaded.length ? `Overloaded: ${overloaded.map((o) => `${o.component} ${o.loadPercent}%`).join(', ')}.` : busiest ? `No component is overloaded; busiest is ${busiest.component} at ${busiest.loadPercent}%.` : 'No traffic, so nothing is loaded.',
+    ...(sim.rps > 0 && components.length ? [`Per component: ${components.slice(0, 15).map((c) => `${c.component} ${c.offline ? 'OFFLINE' : `${fmtCompact(c.requestsPerSecond)} rps ${c.loadPercent}%`}`).join(', ')}${components.length > 15 ? ', …' : ''}.`] : []),
+    ...d.nodes.filter((n) => n.kind === 'cache').flatMap((n) => {
+      const h = Math.round((sim.cacheHit[n.id] ?? CACHE_HIT) * 100);
+      if (n.down) return [sim.cacheBypass[n.id] ? `${n.label} is offline: its reads go to the database instead.` : `${n.label} is offline and nothing is behind it: its reads fail.`];
+      if (sim.cacheRefill[n.id] === false) return [`${n.label}: the database behind it is offline, so expired keys cannot refill (TTL ${cacheConfig(n).ttl}s). Hit rate now ${h}%; misses and writes fail.`];
+      if (h < Math.round(CACHE_HIT * 100)) return [`${n.label} is warming up: hit rate ${h}%, the rest miss and go to the database.`];
+      return [];
+    }),
     ...(scaling.length ? [`Autoscaling during the first ${seconds}s: ${scaling.slice(-6).join('; ')}.`] : []),
     ...queues.map((q) => `Queue ${q.component}: ${fmtCompact(q.waitingMessages)} waiting, ${q.changePerSecond > 0 ? `growing +${fmtCompact(q.changePerSecond)}/s` : q.changePerSecond < 0 ? `draining ${fmtCompact(-q.changePerSecond)}/s` : 'steady'}.`),
     ...loadBalancers.map((l) => `${l.component} (${l.algorithm}): ${l.split}.`),
@@ -67,6 +81,6 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     users: sim.users, requestsPerSecond: Math.round(sim.rps), p95Ms: p95, latencyTargetMs: slo,
     meetsLatencyTarget: p95 == null || p95 <= slo,
     errorRatePercent: Math.round(sim.errorRate * 1000) / 10, monthlyCostUsd: Math.round(sim.cost),
-    overloaded, busiest, scaling, queues, loadBalancers, text: lines.join('\n'),
+    overloaded, busiest, components, scaling, queues, loadBalancers, text: lines.join('\n'),
   };
 }

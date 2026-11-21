@@ -1,6 +1,6 @@
 import type { DesignDoc, DesignNode, NodeKind, Shape } from '@syslab/types';
 import {
-  DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
+  CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
   isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
 } from '@syslab/sim';
@@ -171,14 +171,17 @@ function loadPill(v: number, down: boolean): LoadPillView {
 const MIN_VISIBLE_RPS = 0.5;
 const TONES = 6;
 
-function packets(rps: number, async: boolean, fail: boolean, keyPrefix: string): PacketView[] {
+/** share of a line's requests that fail: all of them into an offline node, the overflow into an overloaded one */
+const failShare = (down: boolean, bypassed: boolean, load: number) => (down ? (bypassed ? 0 : 1) : isOver(load) ? Math.min(1, Math.max(0, 1 - 1 / load)) : 0);
+
+function packets(rps: number, async: boolean, fail: number, keyPrefix: string): PacketView[] {
   const cnt = rps < MIN_VISIBLE_RPS ? 0 : rps > 5000 ? 4 : rps > 500 ? 3 : 2;
   const dur = Math.max(0.9, Math.min(2.6, 2.8 - Math.log10(rps + 1) * 0.38)) * (async ? 1.4 : 1);
   return Array.from({ length: cnt }, (_, i) => ({
     key: `${keyPrefix}-${i}`,
     dur: dur.toFixed(2),
     delay: (-(i * dur) / cnt).toFixed(2),
-    fail: fail && i === 0,
+    fail: fail > 0 && i < Math.max(1, Math.round(cnt * fail)),
   }));
 }
 
@@ -187,7 +190,7 @@ function packets(rps: number, async: boolean, fail: boolean, keyPrefix: string):
  * density follows the backend's share; round robin / weighted staggers backends so
  * requests visibly take turns; IP hash colours each backend's clients consistently.
  */
-function lbPackets(rps: number, share: number, idx: number, n: number, algo: string, dur: number, fail: boolean, keyPrefix: string): PacketView[] {
+function lbPackets(rps: number, share: number, idx: number, n: number, algo: string, dur: number, fail: number, keyPrefix: string): PacketView[] {
   if (rps < MIN_VISIBLE_RPS || share <= 0) return [];
   const cnt = Math.max(1, Math.min(8, Math.round(share * 8)));
   const turn = algo === 'rr' || algo === 'wrr' ? (idx * dur) / (cnt * Math.max(1, n)) : 0;
@@ -195,7 +198,7 @@ function lbPackets(rps: number, share: number, idx: number, n: number, algo: str
     key: `${keyPrefix}-${j}`,
     dur: dur.toFixed(2),
     delay: (-((j * dur) / cnt) - turn).toFixed(2),
-    fail: fail && j === 0,
+    fail: fail > 0 && j < Math.max(1, Math.round(cnt * fail)),
     tone: algo === 'hash' ? idx % TONES : undefined,
   }));
 }
@@ -277,7 +280,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     const r = intoCard ? CARD_R : (Math.min(kb.w, kb.h) / 2 - 4) * nodeScale(b, sim);
     const agg = mk ? merged.get(mk)! : null;
     const rps = agg ? agg.rps : sim.edgeRps[e.id] ?? 0;
-    const fail = (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.load[b.id] ?? 0));
+    const failR = failShare(b.down, !!sim.cacheBypass[b.id], sim.load[b.id] ?? 0);
+    const fail = failR > 0;
 
     const pairs: [Point, Point, number][] = [];
     if (agg) pairs.push([A[0], B[0], 1]);
@@ -319,7 +323,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       id: e.id,
       lines: pairs.map(([p, q, scale], i) => {
         const rpsI = perRep ? perRep[i] ?? 0 : each;
-        const failI = perRep ? (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.repLoad[b.id]?.[i] ?? 0)) : fail;
+        const failRI = perRep ? failShare(b.down, !!sim.cacheBypass[b.id], sim.repLoad[b.id]?.[i] ?? 0) : failR;
+        const failI = failRI > 0;
         const key = `${e.id}-${i}`;
         const retract = i === pairs.length - 1 && (drainTo || drainFrom);
         if (lbAlgo) {
@@ -328,7 +333,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
           const share = mine.reduce((t, x) => t + x.share, 0);
           const lineRps = mine.reduce((t, x) => t + x.rps, 0);
           const idx = Math.max(0, lbList.findIndex((x) => x === mine[0]));
-          const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failI, key) : [];
+          const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failRI, key) : [];
           const lv = line(key, p, q, r * scale, pk, retract);
           if (lbList.length > 1 && lineRps >= MIN_VISIBLE_RPS) {
             const pct = `${Math.round(share * 100)}%`;
@@ -342,7 +347,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
           }
           return lv;
         }
-        let pk = ui.running ? packets(rpsI, e.mode === 'async', failI, key) : [];
+        let pk = ui.running ? packets(rpsI, e.mode === 'async', failRI, key) : [];
         if (intoHash) pk = pk.map((x, j) => ({ ...x, tone: j % TONES }));
         return line(key, p, q, r * scale, pk, retract);
       }),
@@ -466,7 +471,9 @@ function buildNode(
   if (fanned && reps > pos.length) below += ` · +${reps - pos.length} more`;
 
   let warn: string | null = null;
-  if (n.down) warn = n.kind === 'cache' ? 'offline · reads fall through to DB' : 'node offline';
+  if (n.down) warn = n.kind !== 'cache' ? 'node offline' : sim.cacheBypass[n.id] ? 'offline · reads fall through to DB' : 'offline · reads fail (no DB behind it)';
+  else if (n.kind === 'cache' && sim.cacheRefill[n.id] === false) warn = (sim.cacheHit[n.id] ?? 0) > 0 ? `DB offline · keys expiring · ${Math.round((sim.cacheHit[n.id] ?? 0) * 100)}% hits` : 'DB offline · cache empty';
+  else if (n.kind === 'cache' && (sim.cacheHit[n.id] ?? CACHE_HIT) < CACHE_HIT - 0.005) warn = `warming up · ${Math.round((sim.cacheHit[n.id] ?? 0) * 100)}% hits`;
   else if (sim.needsLB[n.id]) warn = 'needs a load balancer';
   else if (lp.hot) warn = n.kind === 'ext' ? 'rate limited' : auto && reps >= n.autoscale.max ? 'hit max replicas' : k.perCpu && sizeIdx === 4 && reps === 1 ? 'largest machine you can buy' : 'over capacity';
 

@@ -413,6 +413,9 @@ function createActions(set: Set, get: Get) {
     updateLb(id: string, patch: Partial<NonNullable<DesignNode['lbc']>>) {
       edit((doc) => { const n = findNode(doc, id); if (n) n.lbc = { ...(n.lbc ?? {}), ...patch }; }, `lb:${id}:${keysOf(patch)}`);
     },
+    updateCache(id: string, patch: Partial<NonNullable<DesignNode['cachec']>>) {
+      edit((doc) => { const n = findNode(doc, id); if (n) n.cachec = { ...(n.cachec ?? {}), ...patch }; }, `cache:${id}:${keysOf(patch)}`);
+    },
     toggleDown(id: string) { edit((doc) => { const n = findNode(doc, id); if (n) n.down = !n.down; }); },
     deleteNode(id: string) {
       edit((doc, s) => {
