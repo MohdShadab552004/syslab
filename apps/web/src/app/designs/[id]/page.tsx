@@ -9,6 +9,7 @@ import { useCanvasView } from '@/hooks/editor/useCanvasView';
 import { useCanvasInteractions } from '@/hooks/editor/useCanvasInteractions';
 import { useCamera } from '@/hooks/editor/useCamera';
 import { useEditorShortcuts } from '@/hooks/editor/useEditorShortcuts';
+import { useMobilePanel } from '@/hooks/editor/useMobilePanel';
 import { useEditorChrome } from '@/hooks/editor/useEditorChrome';
 import { useMetrics } from '@/hooks/editor/useMetrics';
 import { usePalette } from '@/hooks/editor/usePalette';
@@ -31,6 +32,7 @@ import { EditorHeader } from '@/components/editor/EditorHeader';
 import { FlowPlayerBar, LessonTimeline } from '@/components/editor/BottomBars';
 import { ShareModal } from '@/components/editor/ShareModal';
 import { ShortcutsModal } from '@/components/editor/ShortcutsModal';
+import { MobileFabs, Sheet } from '@/components/editor/MobileSheets';
 
 /** Design Lab editor. Hooks own all logic; this file only wires them to components. */
 export default function EditorPage() {
@@ -43,6 +45,7 @@ export default function EditorPage() {
   const handlers = useCanvasInteractions();
   const camera = useCamera();
   const shortcuts = useEditorShortcuts();
+  const mobile = useMobilePanel();
   const chrome = useEditorChrome();
   const metrics = useMetrics();
   const palette = usePalette();
@@ -59,11 +62,14 @@ export default function EditorPage() {
   if (!boot.ready || !view || !metrics || !inspector || !player) return <div className="empty static center">Loading design…</div>;
 
   return (
-    <div className="app">
+    <div className="app editor">
       <EditorHeader {...chrome.header} onSaveVersion={versions.onSave} onShare={share.onOpen} onHelp={shortcuts.openHelp} />
 
       <div className="main">
-        <Palette query={palette.query} onQuery={palette.setQuery} groups={palette.groups} onDragStart={handlers.onPaletteDragStart} onClick={handlers.onPaletteClick} />
+        <Sheet title="Add a component" open={mobile.panel === 'palette'} onClose={mobile.close}>
+          <Palette query={palette.query} onQuery={palette.setQuery} groups={palette.groups} onDragStart={handlers.onPaletteDragStart}
+            onClick={(item) => { handlers.onPaletteClick(item); mobile.close(); }} />
+        </Sheet>
 
         <Canvas view={view} handlers={handlers} camera={camera} dragging={dragging} onNoteText={(nid, text) => updateNote(nid, { text })}>
           <MetricsBar metrics={metrics.metrics} />
@@ -74,6 +80,7 @@ export default function EditorPage() {
           <EventsFeed events={chrome.events} />
         </Canvas>
 
+        <Sheet title="Details" open={mobile.panel === 'inspector'} onClose={mobile.close}>
         <aside className="inspector" aria-label="Inspector">
           <Tabs items={chrome.tabs} />
           {chrome.tab === 'inspect' && (
@@ -96,7 +103,10 @@ export default function EditorPage() {
           {chrome.tab === 'flows' && <FlowsPanel items={flows.items} onNew={flows.onNew} />}
           {chrome.tab === 'versions' && <VersionsPanel items={versions.items} saveText={chrome.header.saveText} canSave={versions.canSave} onSave={versions.onSave} />}
         </aside>
+        </Sheet>
       </div>
+
+      <MobileFabs onAdd={mobile.togglePalette} onDetails={mobile.toggleInspector} hasSelection={inspector.kind !== 'none'} />
 
       {lesson ? <LessonTimeline {...lesson} /> : <FlowPlayerBar {...player} />}
       <ShareModal {...share} />
