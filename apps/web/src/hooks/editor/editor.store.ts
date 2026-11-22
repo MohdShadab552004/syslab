@@ -40,6 +40,8 @@ interface UiState {
   marquee: Marquee | null;
   /** node under the pointer */
   hover: string | null;
+  /** connection under the pointer */
+  hoverEdge: string | null;
   /** how the canvas draws the design (per browser) */
   view: ViewPrefs;
 }
@@ -73,7 +75,7 @@ interface ClipBundle { nodes: DesignNode[]; groups: DesignGroup[]; notes: Design
 const initialUi: UiState = {
   tool: 'select', sel: null, pending: null, dragging: false, recording: null, flowPlay: null,
   tab: 'inspect', shareOpen: false, toast: null, query: '', running: true, rewire: null, multi: [], marquee: null,
-  hover: null, view: loadViewPrefs(),
+  hover: null, hoverEdge: null, view: loadViewPrefs(),
 };
 
 /** Everything selected right now, as picks (a selected connection is not included). */
@@ -346,6 +348,7 @@ function createActions(set: Set, get: Get) {
     setDragging(dragging: boolean) { if (dragging) breakMerge(); set((s) => { s.ui.dragging = dragging; }); },
     toggleRunning() { set((s) => { s.ui.running = !s.ui.running; }); },
     setHover(id: string | null) { if (get().ui.hover !== id) set((s) => { s.ui.hover = id; }); },
+    setHoverEdge(id: string | null) { if (get().ui.hoverEdge !== id) set((s) => { s.ui.hoverEdge = id; }); },
     setView(patch: Partial<ViewPrefs>) {
       set((s) => { s.ui.view = { ...s.ui.view, ...patch }; });
       saveViewPrefs(get().ui.view);

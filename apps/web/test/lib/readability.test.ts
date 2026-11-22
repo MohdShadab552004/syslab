@@ -33,7 +33,7 @@ describe('view prefs', () => {
   it('saves json and swallows storage errors', () => {
     const saved: Record<string, string> = {};
     saveViewPrefs({ edges: 'all', route: 'elbow', notes: 'icons' }, { setItem: (k, v) => { saved[k] = v; } });
-    expect(JSON.parse(saved['syslab.view'])).toEqual({ edges: 'all', route: 'elbow', notes: 'icons' });
+    expect(JSON.parse(saved['syslab.view.v2'])).toEqual({ edges: 'all', route: 'elbow', notes: 'icons' });
     expect(() => saveViewPrefs(DEFAULT_VIEW, { setItem: () => { throw new Error('quota'); } })).not.toThrow();
     expect(() => saveViewPrefs(DEFAULT_VIEW, undefined)).not.toThrow();
   });

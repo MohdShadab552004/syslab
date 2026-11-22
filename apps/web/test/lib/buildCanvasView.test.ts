@@ -51,6 +51,8 @@ describe('basic chain', () => {
     expect(e1.showLabel).toBe(true);
     expect(e1.handles).toBeNull();
     expect(e1.weight).toBe(1);
+    expect(e1.tone).toBe('ok');
+    expect(e1.tip).toBeNull();
     expect(v.rewire).toBeNull();
     expect(v.marquee).toBeNull();
     expect(v.flow).toEqual([]);

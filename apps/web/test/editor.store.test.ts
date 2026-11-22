@@ -197,7 +197,14 @@ describe('ui', () => {
     A().setHover(null);
     expect(S().ui.hover).toBeNull();
     A().setView({ edges: 'all' });
-    expect(S().ui.view).toMatchObject({ edges: 'all', route: 'elbow' });
+    expect(S().ui.view).toMatchObject({ edges: 'all', route: 'curve' });
+    A().setHoverEdge('e1');
+    const ui2 = S().ui;
+    A().setHoverEdge('e1');
+    expect(S().ui).toBe(ui2);
+    expect(S().ui.hoverEdge).toBe('e1');
+    A().setHoverEdge(null);
+    expect(S().ui.hoverEdge).toBeNull();
   });
 
   it('toasts', () => {
