@@ -18,7 +18,8 @@ vi.mock('../src/mcp/mcp.service', () => ({ McpService: undefined }));
 
 const paramTypes = (cls: unknown) => Reflect.getMetadata('design:paramtypes', cls as object) as unknown[];
 
-describe('constructor metadata falls back to Object for undefined providers', () => {
+// importing the real classes (and their @syslab/* deps) is slow under a loaded coverage run
+describe('constructor metadata falls back to Object for undefined providers', { timeout: 30_000 }, () => {
   test.each([
     ['../src/designs/designs.controller', 'DesignsController', 1],
     ['../src/designs/designs.service', 'DesignsService', 1],
@@ -46,7 +47,7 @@ describe('constructor metadata falls back to Object for undefined providers', ()
   });
 });
 
-describe('property metadata', () => {
+describe('property metadata', { timeout: 30_000 }, () => {
   test('ImportDesignDto.spec is recorded as Object (Record is only a type)', async () => {
     const { ImportDesignDto } = await import('../src/designs/dto/import-design.dto');
     expect(Reflect.getMetadata('design:type', ImportDesignDto.prototype, 'spec')).toBe(Object);

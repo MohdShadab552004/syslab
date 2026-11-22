@@ -81,11 +81,10 @@ describe('curved lines on the canvas', () => {
     expect(v.edges.every((e) => e.lines.every((l) => l.path?.d.includes(' C')))).toBe(true);
   });
 
-  it('thickness follows traffic and colour follows the target', () => {
+  it('every line has the same thickness; colour follows the target', () => {
     const v = build(fan(), { view: view('curve') });
     const e = (id: string) => v.edges.find((x) => x.id === id)!;
-    expect(e('ug').weight).toBeCloseTo(3.6, 5);
-    expect(e('gc').weight).toBeGreaterThan(e('ga').weight);
+    expect(v.edges.every((x) => x.weight === 1)).toBe(true);
     // c is a small server getting 4/6 of the traffic: overloaded
     expect(e('gc').tone).toBe('fail');
     expect(e('ga').tone).toBe('ok');
@@ -135,10 +134,9 @@ describe('curved lines on the canvas', () => {
     expect(ga.handles!.to).toEqual({ x: Math.round(ga.lines[0].path!.arrow.x), y: Math.round(ga.lines[0].path!.arrow.y) });
   });
 
-  it('straight mode draws plain lines but still weights them', () => {
+  it('straight mode draws plain lines', () => {
     const v = build(fan(), { view: view('straight') });
     expect(v.edges.every((e) => e.lines.every((l) => !l.path))).toBe(true);
-    expect(v.edges.find((e) => e.id === 'ug')!.weight).toBeCloseTo(3.6, 5);
   });
 
   it('a recorded flow follows the curves', () => {
@@ -150,9 +148,4 @@ describe('curved lines on the canvas', () => {
     expect(curved.length).toBeGreaterThan(10);
   });
 
-  it('with no traffic every line is the thinnest', () => {
-    const doc = fan();
-    doc.users = 0;
-    expect(build(doc, { view: view('curve') }).edges.every((e) => e.weight === 1)).toBe(true);
-  });
 });

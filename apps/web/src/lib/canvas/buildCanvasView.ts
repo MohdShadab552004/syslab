@@ -110,7 +110,7 @@ export interface EdgeView {
   hl: boolean;
   /** carries only reads: drawn lighter */
   read: boolean;
-  /** stroke weight: grows with traffic (and with merged group connections) */
+  /** merged connections into / out of a collapsed group: drawn thicker */
   weight: number;
   /** health of the target: busy (70%+) or failing lines are coloured */
   tone: 'ok' | 'busy' | 'fail';
@@ -373,8 +373,6 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     return out;
   };
   const outPort = ports('from'), inPort = ports('to');
-  const rpsOf = (e: DesignEdge) => { const mk = mergeKey(e); return mk ? merged.get(mk)!.rps : sim.edgeRps[e.id] ?? 0; };
-  const maxRps = Math.max(0, ...drawn.map(rpsOf));
   const hoverE = ui.hoverEdge && drawn.some((e) => e.id === ui.hoverEdge) ? ui.hoverEdge : null;
 
   for (const e of drawn) {
@@ -431,7 +429,6 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     const endsOf = (scale: number): Ends => ({ fromR: rA, toR: r * scale + 2, fromPort: outPort.get(e.id) ?? 0, toPort: inPort.get(e.id) ?? 0 });
     const mid = along(A[0], B[0], 0.5, mode, endsOf(1));
     const tone: EdgeView['tone'] = fail ? 'fail' : (sim.load[b.id] ?? 0) >= 0.7 ? 'busy' : 'ok';
-    const trafficW = maxRps > 0 ? 1 + 2.6 * Math.sqrt(rps / maxRps) : 1;
     const isHover = hoverE === e.id;
     const toLabel = agg && agg.count > 1 ? `${agg.count} connections` : `${a.label} → ${b.label}`;
     const tip = isHover
@@ -481,7 +478,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       dim: playing || rw?.edgeId === e.id || (!!hoverE && !isHover) || (!hoverE && focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes))),
       hl: isHover || !!hover?.edges.has(e.id) || (focused && focus.edges.has(e.id)),
       read: e.op === 'read',
-      weight: Math.round(Math.max(agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1, trafficW) * 100) / 100,
+      weight: agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1,
       tone,
       tip,
       label: agg && agg.count > 1
