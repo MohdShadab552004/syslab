@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import type { DesignDoc, DesignNode } from '@syslab/types';
-import { autoH, autoV, blankDoc, cacheConfig, dbConfig, lbConfig, makeEdge, makeNode } from '@syslab/sim';
+import { autoH, autoV, blankDoc, cacheConfig, dbConfig, lbConfig, makeEdge, makeNode, queueConfig } from '@syslab/sim';
 import { buildDesign } from '../src/build';
 import { docToSpec } from '../src/readback';
 import { DesignSpec } from '../src/schema';
@@ -8,12 +8,13 @@ import { c, spec } from './helpers';
 
 /** Node without layout and with configs resolved, so equal settings compare equal. */
 const norm = (n: DesignNode) => {
-  const { dbc, lbc, cachec, ...rest } = n;
+  const { dbc, lbc, cachec, queuec, ...rest } = n;
   return {
     ...rest,
     ...(n.kind === 'db' && { db: dbConfig(n) }),
     ...(n.kind === 'lb' && { lb: lbConfig(n) }),
     ...(n.kind === 'cache' && { cache: cacheConfig(n) }),
+    ...(n.kind === 'queue' && { queue: queueConfig(n) }),
   };
 };
 

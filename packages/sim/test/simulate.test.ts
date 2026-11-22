@@ -252,13 +252,13 @@ describe('databases', () => {
 
 describe('queues', () => {
   const qDesign = (users, wOver = {}, qOver = {}) =>
-    design({ users }, ['u', 'users'], ['api', 'app', { size: 4 }], ['q', 'queue', qOver], ['w', 'worker', { size: 0, ...wOver }])
+    design({ users }, ['u', 'users'], ['api', 'app', { size: 4 }], ['q', 'queue', { queuec: { mode: 'work' }, ...qOver }], ['w', 'worker', { size: 0, ...wOver }])
       .edge('u', 'api').edge('api', 'q', { mode: 'async' }).edge('q', 'w', { mode: 'async' });
 
   test('a consumer that keeps up drains everything as it arrives', () => {
     const s = S.simulate(qDesign(1000).doc);
     // 60 msg/s into a 120 msg/s worker
-    expect(s.queue.q).toEqual({ depth: 0, inRate: 60, outRate: 60, drainCap: 120, growth: 0, full: false, consumers: 1 });
+    expect(s.queue.q).toEqual({ depth: 0, inRate: 60, outRate: 60, drainCap: 120, growth: 0, full: false, consumers: 1, mode: 'work', subscribers: [] });
   });
 
   test('backlog drains at the consumer rate', () => {
@@ -298,7 +298,7 @@ describe('queues', () => {
   });
 
   test('competing consumers pull in proportion to their capacity; a database consumer counts every shard', () => {
-    const d = design({ users: 1000 }, ['u', 'users'], ['api', 'app', { size: 4 }], ['q', 'queue'], ['w', 'worker', { size: 0 }], ['db', 'db', { size: 0, dbc: { shards: 2 } }])
+    const d = design({ users: 1000 }, ['u', 'users'], ['api', 'app', { size: 4 }], ['q', 'queue', { queuec: { mode: 'work' } }], ['w', 'worker', { size: 0 }], ['db', 'db', { size: 0, dbc: { shards: 2 } }])
       .edge('u', 'api').edge('api', 'q', { mode: 'async' }).edge('q', 'w', { mode: 'async' }).edge('q', 'db', { mode: 'async' });
     const s = S.simulate(d.doc);
     const wCap = 120, dbCap = 240 * 2;
@@ -308,7 +308,7 @@ describe('queues', () => {
   });
 
   test('a consumer with unlimited capacity takes everything', () => {
-    const d = design({ users: 1000 }, ['u', 'users'], ['api', 'app', { size: 4 }], ['q', 'queue'], ['w', 'worker'], ['x', 'users'])
+    const d = design({ users: 1000 }, ['u', 'users'], ['api', 'app', { size: 4 }], ['q', 'queue', { queuec: { mode: 'work' } }], ['w', 'worker'], ['x', 'users'])
       .edge('u', 'api').edge('api', 'q', { mode: 'async' }).edge('q', 'w', { mode: 'async' }).edge('q', 'x', { mode: 'async' });
     const s = S.simulate(d.doc);
     expect(s.queue.q.drainCap).toBe(Infinity);

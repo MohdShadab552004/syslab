@@ -4,9 +4,10 @@ import {
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
   isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
 } from '@syslab/sim';
-import type { FlowPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
+import type { FlowPlayback, JourneyPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
 import { GROUP_CARD, cardCenter, cardLeft, collapsedOwners, groupMembers } from './groups';
+import { traceJourney } from './trace';
 import { DEFAULT_VIEW, curveRoute, elbowRoute, findHubs, focusSet, pointAlong, portOffsets, type Ends, type Route, type ViewPrefs } from './readability';
 
 /* ------------------------------------------------------------------ */
@@ -76,6 +77,8 @@ export interface NodeView {
   /** drop target state while an edge end is dragged over this node */
   drop?: 'ok' | 'bad' | null;
   queue: QueueVisual | null;
+  /** the step a playing journey has just reached */
+  tcur?: boolean;
   /** shared infrastructure this node calls, shown as chips instead of lines (and "N callers" on a hub) */
   chips: { key: string; text: string; hot: boolean }[];
 }
@@ -116,6 +119,8 @@ export interface EdgeView {
   tone: 'ok' | 'busy' | 'fail';
   /** hovered: show a tooltip with the numbers */
   tip: string | null;
+  /** the hop a playing journey is on right now */
+  tcur?: boolean;
   label: string;
   showLabel: boolean;
   labelX: number;
@@ -141,7 +146,11 @@ export interface GroupView {
 
 export interface NoteView { id: string; x: number; y: number; text: string; selected: boolean; open: boolean }
 
+/** The journey of the selected component, for the playback bar. */
+export interface JourneyView { focus: string; label: string; steps: number; idx: number | null; playing: boolean; caption: string }
+
 export interface CanvasView {
+  journey: JourneyView | null;
   nodes: NodeView[];
   edges: EdgeView[];
   replication: ReplicationLineView[];
@@ -171,6 +180,8 @@ export interface CanvasUi {
   hover?: string | null;
   /** connection under the pointer: it lights up, the others fade */
   hoverEdge?: string | null;
+  /** journey playback of the selected component */
+  journeyPlay?: JourneyPlayback | null;
   view?: ViewPrefs;
 }
 
@@ -300,6 +311,13 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
   const focusIds = [...picked].filter((k) => k.startsWith('node:')).map((k) => k.slice(5));
   if (selEdge) focusIds.push(selEdge.from, selEdge.to);
   const focus = focusSet(doc, focusIds);
+  // one selected component: light its whole journey (users → it → everything it calls), numbered
+  const single = sel?.type === 'node' && !multi.length && !playing && !rw ? sel.id : null;
+  const journey = single ? traceJourney(doc, sim, single) : null;
+  const jp = journey && ui.journeyPlay?.focus === journey.focus ? ui.journeyPlay : null;
+  /** step reached by the playback (null = whole journey shown at once) */
+  const reached = jp ? jp.idx + 1 : null;
+  if (journey) { focus.nodes = new Set(journey.nodeStep.keys()); focus.edges = new Set(journey.edgeStep.keys()); }
   const focused = focus.nodes.size > 0 && !playing && !rw;
   const hover = ui.hover && byIdOk(doc, ui.hover) ? focusSet(doc, [ui.hover]) : null;
   /** a line into a hub stays hidden unless something about it is in focus */
@@ -323,7 +341,14 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
   /* ---------- nodes ---------- */
   const nodes: NodeView[] = doc.nodes.filter((n) => !ownerOf('node', n.id)).map((n) => {
     const v = buildNode(n, sim, ui, positions.get(n.id)!, stepsOf, playing);
-    return { ...v, drop: dropOf(n.id), selected: isPicked('node', n.id), dim: v.dim || (focused && !focus.nodes.has(n.id)), chips: chipsOf(n.id) };
+    const js = journey?.nodeStep.get(n.id);
+    return {
+      ...v, drop: dropOf(n.id), selected: isPicked('node', n.id),
+      dim: v.dim || (focused && !focus.nodes.has(n.id)) || (reached != null && (js == null || js > reached)),
+      badge: js != null ? String(js) : v.badge,
+      tcur: reached != null && js === reached,
+      chips: chipsOf(n.id),
+    };
   });
 
   /* ---------- edges ---------- */
@@ -475,7 +500,9 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       }),
       async: e.mode === 'async',
       selected: isSel || inMulti,
-      dim: playing || rw?.edgeId === e.id || (!!hoverE && !isHover) || (!hoverE && focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes))),
+      dim: playing || rw?.edgeId === e.id || (!!hoverE && !isHover) || (!hoverE && focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes)))
+        || (reached != null && (journey!.edgeStep.get(e.id) ?? Infinity) > reached),
+      tcur: reached != null && journey!.edgeStep.get(e.id) === reached,
       hl: isHover || !!hover?.edges.has(e.id) || (focused && focus.edges.has(e.id)),
       read: e.op === 'read',
       weight: agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1,
@@ -579,7 +606,16 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
   const mq = ui.marquee;
   const marquee = mq ? { x: Math.min(mq.x1, mq.x2), y: Math.min(mq.y1, mq.y2), w: Math.abs(mq.x2 - mq.x1), h: Math.abs(mq.y2 - mq.y1) } : null;
 
-  return { nodes, edges, replication, flow, groups, notes, rewire, marquee };
+  const journeyView: JourneyView | null = journey ? {
+    focus: journey.focus,
+    label: sim.byId.get(journey.focus)?.label ?? journey.focus,
+    steps: journey.steps,
+    idx: jp ? jp.idx : null,
+    playing: !!jp?.playing,
+    caption: jp ? journey.captions[jp.idx] ?? '' : `${journey.steps} step${journey.steps === 1 ? '' : 's'} from the users to everything it calls`,
+  } : null;
+
+  return { journey: journeyView, nodes, edges, replication, flow, groups, notes, rewire, marquee };
 }
 
 function buildNode(
@@ -670,7 +706,8 @@ function buildNode(
     const trend = state === 'growing' ? `+${fmtCompact(growth)}/s`
       : state === 'draining' ? `empty in ~${Math.max(1, Math.ceil(depth / -growth))}s`
       : state === 'full' ? 'full' : (q?.inRate ?? 0) > 0 ? `${fmtCompact(q!.inRate)}/s flowing` : 'idle';
-    below = [n.label, trend].join(' · ');
+    const subs = q?.mode === 'pubsub' ? `pub/sub → ${q.subscribers.length}` : '';
+    below = [n.label, subs, trend].filter(Boolean).join(' · ');
     if (!n.down && q?.full) warn = 'queue full · rejecting messages';
     else if (!n.down && q && q.inRate > 0 && q.consumers === 0) warn = 'no consumer · messages pile up';
     const rate = Math.max(q?.inRate ?? 0, q?.outRate ?? 0);

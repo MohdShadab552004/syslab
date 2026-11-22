@@ -58,6 +58,17 @@ export interface Measured {
   ms?: number;
 }
 
+/**
+ * How a queue hands out messages.
+ * pubsub: every subscriber gets every message (Kafka topics, SNS) — each keeps its own backlog.
+ * work: each message goes to one consumer (SQS, RabbitMQ work queue) — consumers share the load.
+ */
+export type QueueMode = 'pubsub' | 'work';
+
+export interface QueueConfig {
+  mode: QueueMode;
+}
+
 export interface CacheConfig {
   /** seconds a key lives before it expires and must be re-read from the database */
   ttl: number;
@@ -82,6 +93,8 @@ export interface DesignNode {
   measured?: Measured;
   /** cache settings (kind 'cache' only) */
   cachec?: Partial<CacheConfig>;
+  /** queue settings (kind 'queue' only); the default comes from the technology */
+  queuec?: Partial<QueueConfig>;
 }
 
 export type EdgeMode = 'sync' | 'async';

@@ -61,6 +61,7 @@ Realism fields (all optional):
 | `measured: { requestsPerSecond, latencyMs }` | component | Numbers from a real load test; they replace the estimates |
 | `database.maxConnections` | db | Client connections per server (10000 ≈ a pooler like PgBouncer) |
 | `cache.ttlSeconds` | cache | How long keys live if the database behind it goes down |
+| `queue.mode` | queue | `pubsub` (every subscriber gets every message; Kafka default) or `work` (workers share messages) |
 | `callsPerRequest` | connection | Fan-out: every request makes this many calls here (instead of splitting traffic) |
 | `retries`, `circuitBreaker` | connection | Failure handling; retries can cause retry storms |
 

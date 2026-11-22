@@ -378,7 +378,7 @@ describe('nodeView: cache', () => {
 describe('nodeView: queue', () => {
   const q = (users = 12000, consumer = true, over: Partial<DesignNode> = {}) => blankDoc({
     users,
-    nodes: [N('u', 'users', 0, 0, 'U'), N('a', 'app', 300, 0, 'A'), N('q', 'queue', 600, 0, 'Q', over), N('w', 'worker', 900, 0, 'W')],
+    nodes: [N('u', 'users', 0, 0, 'U'), N('a', 'app', 300, 0, 'A'), N('q', 'queue', 600, 0, 'Q', { queuec: { mode: 'work' }, ...over }), N('w', 'worker', 900, 0, 'W')],
     edges: [E('ua', 'u', 'a'), E('aq', 'a', 'q', { mode: 'async' }), ...(consumer ? [E('qw', 'q', 'w')] : [])],
   });
 

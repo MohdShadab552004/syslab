@@ -14,11 +14,11 @@ import {
 /*  State shape                                                        */
 /* ------------------------------------------------------------------ */
 
-import type { FlowPlayback, InspectorTab, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
+import type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
 import { groupMembers } from '@/lib/canvas/groups';
 import { loadViewPrefs, saveViewPrefs, type ViewPrefs } from '@/lib/canvas/readability';
 import { layout } from '@syslab/spec';
-export type { FlowPlayback, InspectorTab, Marquee, Pick, SaveState, Selection, Toast, Tool };
+export type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool };
 
 interface UiState {
   tool: Tool;
@@ -42,6 +42,8 @@ interface UiState {
   hover: string | null;
   /** connection under the pointer */
   hoverEdge: string | null;
+  /** step-by-step playback of the selected component's journey */
+  journeyPlay: JourneyPlayback | null;
   /** how the canvas draws the design (per browser) */
   view: ViewPrefs;
 }
@@ -75,7 +77,7 @@ interface ClipBundle { nodes: DesignNode[]; groups: DesignGroup[]; notes: Design
 const initialUi: UiState = {
   tool: 'select', sel: null, pending: null, dragging: false, recording: null, flowPlay: null,
   tab: 'inspect', shareOpen: false, toast: null, query: '', running: true, rewire: null, multi: [], marquee: null,
-  hover: null, hoverEdge: null, view: loadViewPrefs(),
+  hover: null, hoverEdge: null, journeyPlay: null, view: loadViewPrefs(),
 };
 
 /** Everything selected right now, as picks (a selected connection is not included). */
@@ -267,7 +269,14 @@ function createActions(set: Set, get: Get) {
 
     /* ---------- ui ---------- */
     setTool(tool: Tool) { set((s) => { s.ui.tool = tool; s.ui.pending = null; if (tool === 'connect') s.ui.recording = null; }); },
-    select(sel: Selection) { set((s) => { s.ui.sel = sel; s.ui.multi = []; if (sel) s.ui.tab = 'inspect'; }); },
+    select(sel: Selection) {
+      set((s) => {
+        s.ui.sel = sel; s.ui.multi = [];
+        if (sel) s.ui.tab = 'inspect';
+        // a journey belongs to the component it started from
+        if (s.ui.journeyPlay && !(sel?.type === 'node' && sel.id === s.ui.journeyPlay.focus)) s.ui.journeyPlay = null;
+      });
+    },
     clearSelection() { set((s) => { if (s.ui.sel || s.ui.pending || s.ui.multi.length) { s.ui.sel = null; s.ui.pending = null; s.ui.multi = []; } }); },
 
     /* ---------- multi-selection ---------- */
@@ -392,7 +401,14 @@ function createActions(set: Set, get: Get) {
       get().actions.toast('Laid out left to right · Ctrl+Z to undo');
     },
     /** Throw away every message waiting in a queue. */
-    purgeQueue(id: string) { set((s) => { s.runtime.qDepth = { ...s.runtime.qDepth }; delete s.runtime.qDepth[id]; }); toast('Queue purged'); },
+    purgeQueue(id: string) {
+      // a pub/sub queue keeps one backlog per subscriber (keys "queue>edge")
+      set((s) => { s.runtime.qDepth = Object.fromEntries(Object.entries(s.runtime.qDepth).filter(([k]) => k !== id && !k.startsWith(`${id}>`))); });
+      toast('Queue purged');
+    },
+    updateQueue(id: string, patch: Partial<NonNullable<DesignNode['queuec']>>) {
+      edit((doc) => { const n = findNode(doc, id); if (n) n.queuec = { ...(n.queuec ?? {}), ...patch }; }, `queue:${id}:${keysOf(patch)}`);
+    },
     setSpike(spike: number) { set((s) => { s.runtime.spike = spike; }); },
     toast,
     clearToast() { set((s) => { s.ui.toast = null; }); },
@@ -631,6 +647,9 @@ function createActions(set: Set, get: Get) {
       set((s) => { s.ui.flowPlay = { id, idx: 0, playing: true }; s.ui.recording = null; });
     },
     setFlowPlay(fp: FlowPlayback | null) { set((s) => { s.ui.flowPlay = fp; }); },
+    /** Play the journey of a component from the users, one step per second. */
+    playJourney(focus: string) { set((s) => { s.ui.journeyPlay = { focus, idx: 0, playing: true, at: Date.now() }; s.ui.flowPlay = null; s.ui.recording = null; }); },
+    setJourneyPlay(jp: JourneyPlayback | null) { set((s) => { s.ui.journeyPlay = jp; }); },
 
     /* ---------- lesson ---------- */
     loadLessonStep(step: number) {
