@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@syslab/sim": "workspace:*",
+    "@syslab/spec": "workspace:*",
     "@syslab/types": "workspace:*",
     "@tanstack/react-query": "^5.108.2",
     "immer": "^11.2.10",

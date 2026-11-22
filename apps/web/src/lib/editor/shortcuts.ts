@@ -56,6 +56,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['Ctrl', '−'], label: 'Zoom out' },
       { keys: ['Shift', '0'], label: 'Zoom to 100%' },
       { keys: ['Shift', '1'], label: 'Fit design to screen' },
+      { keys: ['L'], label: 'Auto-layout (left to right, fewer crossings)' },
+      { keys: ['Hover', 'component'], label: 'Show its hidden lines to shared services' },
     ],
   },
   {
