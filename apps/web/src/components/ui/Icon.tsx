@@ -30,6 +30,7 @@ export const ICON = {
   group: 'M4 4h16v16H4z',
   note: 'M4 4h16v11l-5 5H4zM15 20v-5h5',
   spike: 'M3 17l6-6 4 4 8-8M15 7h6v6',
+  view: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
   warn: 'M12 3l10 18H2L12 3zM12 10v5M12 18h.01',
   reverse: 'M7 7h13l-4-4M17 17H4l4 4',

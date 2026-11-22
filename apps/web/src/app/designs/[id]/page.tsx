@@ -21,7 +21,8 @@ import { useVersions } from '@/hooks/data/useVersions';
 import { useShare } from '@/hooks/data/useShare';
 import { Tabs, Toast } from '@/components/ui';
 import { Canvas } from '@/components/canvas/Canvas';
-import { CanvasToolbar, ConnectHint, EmptyCanvas, EventsFeed, MetricsBar, RecordBar } from '@/components/canvas/Overlays';
+import { CanvasToolbar, ConnectHint, EmptyCanvas, EventsFeed, JourneyBar, MetricsBar, RecordBar } from '@/components/canvas/Overlays';
+import { useJourneyBar } from '@/hooks/editor/useJourneyBar';
 import { Palette } from '@/components/palette/Palette';
 import { NodeInspector } from '@/components/inspector/NodeInspector';
 import { EdgeInspector } from '@/components/inspector/EdgeInspector';
@@ -57,6 +58,7 @@ export default function EditorPage() {
   const share = useShare();
   const dragging = useEditorStore((s) => s.ui.dragging);
   const updateNote = useEditorStore((s) => s.actions.updateNote);
+  const journeyBar = useJourneyBar(view?.journey ?? null);
 
   if (boot.error) return <div className="empty static center">Could not load this design: {boot.error.message}</div>;
   if (!boot.ready || !view || !metrics || !inspector || !player) return <div className="empty static center">Loading design…</div>;
@@ -76,6 +78,7 @@ export default function EditorPage() {
           <CanvasToolbar {...chrome.toolbar} />
           {chrome.connectHint && <ConnectHint text={chrome.connectHint} />}
           {chrome.recording && <RecordBar {...chrome.recording} />}
+          {journeyBar && <JourneyBar {...journeyBar} />}
           {!view.nodes.length && <EmptyCanvas />}
           <EventsFeed events={chrome.events} />
         </Canvas>

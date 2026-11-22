@@ -1,0 +1,188 @@
+{
+  "url@0.5x": {
+    "rps": 1500,
+    "mean": 79.5,
+    "p95": 105.676,
+    "p99": 135.599,
+    "errorRate": 0,
+    "cost": 31669,
+    "load": {
+      "Load Balancer": 0.013,
+      "Shortener API": 0.195,
+      "Key Generator": 0.284,
+      "Link Cache": 0.031,
+      "Link Store": 0.004
+    }
+  },
+  "url@1x": {
+    "rps": 3000,
+    "mean": 79.678,
+    "p95": 105.738,
+    "p99": 139.962,
+    "errorRate": 0,
+    "cost": 31669,
+    "load": {
+      "Load Balancer": 0.025,
+      "Shortener API": 0.391,
+      "Key Generator": 0.568,
+      "Link Cache": 0.061,
+      "Link Store": 0.007
+    }
+  },
+  "url@3x": {
+    "rps": 9000,
+    "mean": 1182.321,
+    "p95": 1425.455,
+    "p99": 2101.818,
+    "errorRate": 0.038,
+    "cost": 32869,
+    "load": {
+      "Load Balancer": 0.075,
+      "Shortener API": 0.586,
+      "Key Generator": 1.705,
+      "Link Cache": 0.184,
+      "Link Store": 0.022
+    }
+  },
+  "chat@0.5x": {
+    "rps": 1500,
+    "mean": 54.9,
+    "p95": 74.862,
+    "p99": 97.34,
+    "errorRate": 0,
+    "cost": 16349,
+    "load": {
+      "WS Load Balancer": 0.01,
+      "WebSocket Gateway": 0.025,
+      "Chat Service": 0.156,
+      "Presence": 0.008,
+      "Message Bus": 0.003,
+      "Fan-out Worker": 0.156,
+      "Messages DB": 0.029
+    }
+  },
+  "chat@1x": {
+    "rps": 3000,
+    "mean": 54.9,
+    "p95": 74.862,
+    "p99": 97.34,
+    "errorRate": 0,
+    "cost": 16349,
+    "load": {
+      "WS Load Balancer": 0.021,
+      "WebSocket Gateway": 0.05,
+      "Chat Service": 0.313,
+      "Presence": 0.015,
+      "Message Bus": 0.006,
+      "Fan-out Worker": 0.313,
+      "Messages DB": 0.058
+    }
+  },
+  "chat@3x": {
+    "rps": 9000,
+    "mean": 54.9,
+    "p95": 74.862,
+    "p99": 97.34,
+    "errorRate": 0,
+    "cost": 22349,
+    "load": {
+      "WS Load Balancer": 0.063,
+      "WebSocket Gateway": 0.15,
+      "Chat Service": 0.469,
+      "Presence": 0.045,
+      "Message Bus": 0.018,
+      "Fan-out Worker": 0.469,
+      "Messages DB": 0.174
+    }
+  },
+  "ecom@0.5x": {
+    "rps": 900,
+    "mean": 69.3,
+    "p95": 94.518,
+    "p99": 123.299,
+    "errorRate": 0,
+    "cost": 11809,
+    "load": {
+      "CDN": 0.002,
+      "Load Balancer": 0.002,
+      "Store API": 0.113,
+      "Product Cache": 0.009,
+      "Orders DB": 0.011,
+      "Order Events": 0.001,
+      "Order Worker": 0.113,
+      "Payments": 0.045,
+      "Email": 0.09
+    }
+  },
+  "ecom@1x": {
+    "rps": 1800,
+    "mean": 69.3,
+    "p95": 94.518,
+    "p99": 123.299,
+    "errorRate": 0,
+    "cost": 11809,
+    "load": {
+      "CDN": 0.004,
+      "Load Balancer": 0.005,
+      "Store API": 0.225,
+      "Product Cache": 0.019,
+      "Orders DB": 0.022,
+      "Order Events": 0.002,
+      "Order Worker": 0.225,
+      "Payments": 0.09,
+      "Email": 0.18
+    }
+  },
+  "ecom@3x": {
+    "rps": 5400,
+    "mean": 69.3,
+    "p95": 94.518,
+    "p99": 123.299,
+    "errorRate": 0,
+    "cost": 12409,
+    "load": {
+      "CDN": 0.011,
+      "Load Balancer": 0.014,
+      "Store API": 0.45,
+      "Product Cache": 0.057,
+      "Orders DB": 0.065,
+      "Order Events": 0.005,
+      "Order Worker": 0.675,
+      "Payments": 0.27,
+      "Email": 0.54
+    }
+  },
+  "lesson@0.5x": {
+    "rps": 30,
+    "mean": 58.5,
+    "p95": 83.397,
+    "p99": 111.795,
+    "errorRate": 0,
+    "cost": 240,
+    "load": {
+      "App Server": 0.025
+    }
+  },
+  "lesson@1x": {
+    "rps": 60,
+    "mean": 58.5,
+    "p95": 83.397,
+    "p99": 111.795,
+    "errorRate": 0,
+    "cost": 240,
+    "load": {
+      "App Server": 0.05
+    }
+  },
+  "lesson@3x": {
+    "rps": 180,
+    "mean": 58.5,
+    "p95": 83.397,
+    "p99": 111.795,
+    "errorRate": 0,
+    "cost": 240,
+    "load": {
+      "App Server": 0.15
+    }
+  }
+}

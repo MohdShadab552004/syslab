@@ -1,7 +1,8 @@
 import type {
-  AutoscaleConfig, DbConfig, DesignDoc, DesignEdge, DesignNode, LbConfig, NodeKind, Requirements,
+  AutoscaleConfig, CacheConfig, DbConfig, QueueConfig, DesignDoc, DesignEdge, DesignNode, LbConfig, NodeKind, Requirements,
 } from '@syslab/types';
 import { TECHS } from './catalog';
+import { techProfile } from './techs';
 
 let counter = 0;
 /** Short unique id. Good enough for client-side ids inside one document. */
@@ -13,10 +14,12 @@ export function uid(prefix: string): string {
 export const DEFAULT_AUTOSCALE: AutoscaleConfig = { on: false, mode: 'h', min: 2, max: 10, minSize: 1, maxSize: 4, target: 60 };
 
 export const DEFAULT_DB: DbConfig = {
-  replicas: 0, sync: false, shards: 1, strategy: 'hash', shardKey: 'user_id', partition: 'none', partKey: 'created_at', parts: 12,
+  replicas: 0, sync: false, shards: 1, strategy: 'hash', shardKey: 'user_id', partition: 'none', partKey: 'created_at', parts: 12, maxConn: 0,
 };
 
 export const DEFAULT_LB: LbConfig = { algo: 'rr', vnodes: 10 };
+
+export const DEFAULT_CACHE: CacheConfig = { ttl: 60 };
 
 const DEFAULT_SIZE: Partial<Record<NodeKind, number>> = { app: 2, worker: 1, cache: 1, db: 2 };
 
@@ -62,6 +65,15 @@ export function dbConfig(n: DesignNode): DbConfig {
 
 export function lbConfig(n: DesignNode): LbConfig {
   return { ...DEFAULT_LB, ...(n.lbc ?? {}) };
+}
+
+export function cacheConfig(n: DesignNode): CacheConfig {
+  return { ...DEFAULT_CACHE, ...(n.cachec ?? {}) };
+}
+
+/** Queue settings with the technology's default delivery mode (Kafka: pub/sub, others: work queue). */
+export function queueConfig(n: DesignNode): QueueConfig {
+  return { mode: n.queuec?.mode ?? (techProfile(n).pubsub ? 'pubsub' : 'work') };
 }
 
 export function autoscale(n: DesignNode): AutoscaleConfig {

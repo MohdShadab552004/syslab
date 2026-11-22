@@ -22,7 +22,7 @@ interface Props {
 const noop = () => {};
 const GRID = 20;
 /** Below these zoom levels the canvas switches to a simpler, more readable drawing. */
-const FAR = 0.6, MID = 0.85;
+const XFAR = 0.35, FAR = 0.6, MID = 0.85;
 
 /**
  * The isometric world on an infinite, pannable, zoomable stage.
@@ -32,7 +32,8 @@ export const Canvas = memo(function Canvas({ view, handlers: h, camera: c, onNot
   const { x, y, z } = c.cam;
   const g = GRID * z;
   // level of detail: far = names + problems only, mid = no connection labels
-  const lod = z < FAR ? 'lod-far' : z < MID ? 'lod-mid' : null;
+  // xfar = groups, names and problems only (no notes, chips or quiet lines)
+  const lod = z < XFAR ? 'lod-far lod-xfar' : z < FAR ? 'lod-far' : z < MID ? 'lod-mid' : null;
   // counter-scale factors so key text keeps a readable size on screen when zoomed out
   const inv = Math.min(1 / z, 4), lw = Math.min(1 / z, 2.5);
   return (
@@ -57,11 +58,11 @@ export const Canvas = memo(function Canvas({ view, handlers: h, camera: c, onNot
         style={{ transform: `translate(${x}px, ${y}px) scale(${z})` }}
       >
         {view.groups.map((gr) => <GroupBox key={gr.id} v={gr} onMove={h.onGroupPointerDown ?? noop} onResize={h.onGroupResizeDown ?? noop} onToggle={h.onGroupToggle} />)}
-        <EdgeLayer edges={view.edges} replication={view.replication} />
+        <EdgeLayer edges={view.edges} replication={view.replication} onHover={h.onEdgeHover} onPick={h.onEdgePick} />
         <FlowLayer segments={view.flow} />
         <EdgeLabels edges={view.edges} onPick={h.onEdgePick ?? noop} />
         <LineTags edges={view.edges} />
-        {view.nodes.map((n) => <NodeView key={n.id} v={n} onPointerDown={h.onNodePointerDown ?? noop} />)}
+        {view.nodes.map((n) => <NodeView key={n.id} v={n} onPointerDown={h.onNodePointerDown ?? noop} onHover={h.onNodeHover} />)}
         {view.notes.map((t) => <StickyNote key={t.id} v={t} onMove={h.onNotePointerDown ?? noop} onFocus={h.onNoteFocus ?? noop} onText={onNoteText} />)}
         {h.onEdgeHandleDown && <EdgeHandles edges={view.edges} onDown={h.onEdgeHandleDown} />}
         <RewireGhost v={view.rewire} />

@@ -23,10 +23,10 @@ const Instance = memo(function Instance({ v }: { v: InstanceView }) {
   );
 });
 
-interface Props { v: NodeVM; onPointerDown: (e: React.PointerEvent, id: string) => void }
+interface Props { v: NodeVM; onPointerDown: (e: React.PointerEvent, id: string) => void; onHover?: (id: string | null) => void }
 
 /** One node on the canvas, plus its extra instances (replicas, shards). */
-export const NodeView = memo(function NodeView({ v, onPointerDown }: Props) {
+export const NodeView = memo(function NodeView({ v, onPointerDown, onHover }: Props) {
   const off = pillOffset(v.scale, v.h);
   return (
     <div
@@ -34,6 +34,8 @@ export const NodeView = memo(function NodeView({ v, onPointerDown }: Props) {
       className={cx('node', v.selected && 'sel', v.pending && 'pend', v.hot && 'hot', v.dim && 'dim', v.crosshair && 'crosshair', v.drop && `drop-${v.drop}`)}
       style={{ left: v.left, top: v.top, width: v.w, height: v.h }}
       onPointerDown={(e) => onPointerDown(e, v.id)}
+      onPointerEnter={onHover ? () => onHover(v.id) : undefined}
+      onPointerLeave={onHover ? () => onHover(null) : undefined}
     >
       <div className="lift">
         <div className="shadow" />
@@ -46,6 +48,11 @@ export const NodeView = memo(function NodeView({ v, onPointerDown }: Props) {
         {v.below && <BelowPill text={v.below.text} info={v.below.info} offset={off} users={v.kind === 'users'} />}
         {v.warn && <WarnPill text={v.warn} />}
         {v.badge && <div className="fbadge">{v.badge}</div>}
+        {v.chips.length > 0 && (
+          <div className="chips" title="Shared services this component talks to. Hover or select it to see the lines.">
+            {v.chips.map((c) => <span key={c.key} className={cx('chip', c.hot && 'hot', c.key === 'callers' && 'callers')}>{c.key === 'callers' || c.key === '+more' ? c.text : `→ ${c.text}`}</span>)}
+          </div>
+        )}
         <div className="ring" />
       </div>
       {v.extras.map((x) => <Instance key={x.key} v={x} />)}

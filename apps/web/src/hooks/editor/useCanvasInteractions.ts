@@ -111,6 +111,9 @@ export function useCanvasInteractions() {
     return false;
   }, [actions, begin]);
 
+  const onNodeHover = useCallback((id: string | null) => actions.setHover(id), [actions]);
+  const onEdgeHover = useCallback((id: string | null) => actions.setHoverEdge(id), [actions]);
+
   const onNodePointerDown = useCallback((e: React.PointerEvent, id: string) => {
     e.stopPropagation();
     const { ui, doc } = useEditorStore.getState();
@@ -330,9 +333,9 @@ export function useCanvasInteractions() {
   }, [place]);
 
   return useMemo(() => ({
-    onNodePointerDown, onGroupPointerDown, onGroupResizeDown, onGroupToggle, onNotePointerDown, onNoteFocus, onEdgePick, onEdgeHandleDown,
+    onNodePointerDown, onNodeHover, onEdgeHover, onGroupPointerDown, onGroupResizeDown, onGroupToggle, onNotePointerDown, onNoteFocus, onEdgePick, onEdgeHandleDown,
     onWorldPointerDown, onWorldPointerMove, onWorldPointerUp, onWorldDoubleClick, onDragOver, onDrop, onPaletteDragStart, onPaletteClick,
-  }), [onNodePointerDown, onGroupPointerDown, onGroupResizeDown, onGroupToggle, onNotePointerDown, onNoteFocus, onEdgePick, onEdgeHandleDown,
+  }), [onNodePointerDown, onNodeHover, onEdgeHover, onGroupPointerDown, onGroupResizeDown, onGroupToggle, onNotePointerDown, onNoteFocus, onEdgePick, onEdgeHandleDown,
     onWorldPointerDown, onWorldPointerMove, onWorldPointerUp, onWorldDoubleClick, onDragOver, onDrop, onPaletteDragStart, onPaletteClick]);
 }
 

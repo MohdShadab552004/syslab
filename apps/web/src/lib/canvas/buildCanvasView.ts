@@ -1,12 +1,14 @@
-import type { DesignDoc, DesignNode, NodeKind, Shape } from '@syslab/types';
+import type { DesignDoc, DesignEdge, DesignNode, NodeKind, Shape } from '@syslab/types';
 import {
-  DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
+  CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
   isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
 } from '@syslab/sim';
-import type { FlowPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
+import type { FlowPlayback, JourneyPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
-import { GROUP_CARD, cardCenter, collapsedOwners, groupMembers } from './groups';
+import { GROUP_CARD, cardCenter, cardLeft, collapsedOwners, groupMembers } from './groups';
+import { traceJourney } from './trace';
+import { DEFAULT_VIEW, curveRoute, elbowRoute, findHubs, focusSet, pointAlong, portOffsets, type Ends, type Route, type ViewPrefs } from './readability';
 
 /* ------------------------------------------------------------------ */
 /*  View models: plain data the canvas components render, no logic.   */
@@ -75,6 +77,10 @@ export interface NodeView {
   /** drop target state while an edge end is dragged over this node */
   drop?: 'ok' | 'bad' | null;
   queue: QueueVisual | null;
+  /** the step a playing journey has just reached */
+  tcur?: boolean;
+  /** shared infrastructure this node calls, shown as chips instead of lines (and "N callers" on a hub) */
+  chips: { key: string; text: string; hot: boolean }[];
 }
 
 /** tone: colour of a client (IP hash shows the same colour always reaching the same server) */
@@ -93,6 +99,8 @@ export interface LineView {
   packets: PacketView[];
   retract: boolean;
   tag?: LineTagView;
+  /** curved or elbow line: SVG path data and arrowhead (x / y / len / ang are then unused) */
+  path?: { d: string; arrow: { x: number; y: number; ang: number } };
 }
 
 export interface EdgeView {
@@ -101,6 +109,18 @@ export interface EdgeView {
   async: boolean;
   selected: boolean;
   dim: boolean;
+  /** connected to the hovered or focused node: drawn stronger */
+  hl: boolean;
+  /** carries only reads: drawn lighter */
+  read: boolean;
+  /** merged connections into / out of a collapsed group: drawn thicker */
+  weight: number;
+  /** health of the target: busy (70%+) or failing lines are coloured */
+  tone: 'ok' | 'busy' | 'fail';
+  /** hovered: show a tooltip with the numbers */
+  tip: string | null;
+  /** the hop a playing journey is on right now */
+  tcur?: boolean;
   label: string;
   showLabel: boolean;
   labelX: number;
@@ -124,9 +144,13 @@ export interface GroupView {
   summary: GroupSummaryView | null;
 }
 
-export interface NoteView { id: string; x: number; y: number; text: string; selected: boolean }
+export interface NoteView { id: string; x: number; y: number; text: string; selected: boolean; open: boolean }
+
+/** The journey of the selected component, for the playback bar. */
+export interface JourneyView { focus: string; label: string; steps: number; idx: number | null; playing: boolean; caption: string }
 
 export interface CanvasView {
+  journey: JourneyView | null;
   nodes: NodeView[];
   edges: EdgeView[];
   replication: ReplicationLineView[];
@@ -152,6 +176,13 @@ export interface CanvasUi {
   readOnly?: boolean;
   multi?: Pick[];
   marquee?: Marquee | null;
+  /** node under the pointer: its hidden lines show and its connections light up */
+  hover?: string | null;
+  /** connection under the pointer: it lights up, the others fade */
+  hoverEdge?: string | null;
+  /** journey playback of the selected component */
+  journeyPlay?: JourneyPlayback | null;
+  view?: ViewPrefs;
 }
 
 const LETTERS = 'ABCDEFGH';
@@ -171,14 +202,17 @@ function loadPill(v: number, down: boolean): LoadPillView {
 const MIN_VISIBLE_RPS = 0.5;
 const TONES = 6;
 
-function packets(rps: number, async: boolean, fail: boolean, keyPrefix: string): PacketView[] {
+/** share of a line's requests that fail: all of them into an offline node, the overflow into an overloaded one */
+const failShare = (down: boolean, bypassed: boolean, load: number) => (down ? (bypassed ? 0 : 1) : isOver(load) ? Math.min(1, Math.max(0, 1 - 1 / load)) : 0);
+
+function packets(rps: number, async: boolean, fail: number, keyPrefix: string): PacketView[] {
   const cnt = rps < MIN_VISIBLE_RPS ? 0 : rps > 5000 ? 4 : rps > 500 ? 3 : 2;
   const dur = Math.max(0.9, Math.min(2.6, 2.8 - Math.log10(rps + 1) * 0.38)) * (async ? 1.4 : 1);
   return Array.from({ length: cnt }, (_, i) => ({
     key: `${keyPrefix}-${i}`,
     dur: dur.toFixed(2),
     delay: (-(i * dur) / cnt).toFixed(2),
-    fail: fail && i === 0,
+    fail: fail > 0 && i < Math.max(1, Math.round(cnt * fail)),
   }));
 }
 
@@ -187,7 +221,7 @@ function packets(rps: number, async: boolean, fail: boolean, keyPrefix: string):
  * density follows the backend's share; round robin / weighted staggers backends so
  * requests visibly take turns; IP hash colours each backend's clients consistently.
  */
-function lbPackets(rps: number, share: number, idx: number, n: number, algo: string, dur: number, fail: boolean, keyPrefix: string): PacketView[] {
+function lbPackets(rps: number, share: number, idx: number, n: number, algo: string, dur: number, fail: number, keyPrefix: string): PacketView[] {
   if (rps < MIN_VISIBLE_RPS || share <= 0) return [];
   const cnt = Math.max(1, Math.min(8, Math.round(share * 8)));
   const turn = algo === 'rr' || algo === 'wrr' ? (idx * dur) / (cnt * Math.max(1, n)) : 0;
@@ -195,15 +229,41 @@ function lbPackets(rps: number, share: number, idx: number, n: number, algo: str
     key: `${keyPrefix}-${j}`,
     dur: dur.toFixed(2),
     delay: (-((j * dur) / cnt) - turn).toFixed(2),
-    fail: fail && j === 0,
+    fail: fail > 0 && j < Math.max(1, Math.round(cnt * fail)),
     tone: algo === 'hash' ? idx % TONES : undefined,
   }));
 }
 
-function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false): LineView {
-  const s = segment(a, b);
-  return { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+type RouteMode = ViewPrefs['route'];
+
+/** The routed path of a line, or null for a straight one. */
+function routeOf(mode: RouteMode, a: Point, b: Point, ends: Ends): Route | null {
+  if (mode === 'elbow') return elbowRoute(a, b, ends.toR);
+  if (mode === 'curve') return curveRoute(a, b, ends);
+  return null;
 }
+
+function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false, mode: RouteMode = 'straight', ends?: Ends): LineView {
+  const s = segment(a, b);
+  const lv: LineView = { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+  const r = retract ? null : routeOf(mode, a, b, ends ?? { fromR: 0, toR: targetRadius + 2 });
+  if (r) lv.path = { d: r.d, arrow: r.arrow };
+  return lv;
+}
+
+/** Point a fraction t along a line, following its route when it has one. */
+function along(a: Point, b: Point, t: number, mode: RouteMode, ends: Ends = { fromR: 0, toR: 0 }): Point {
+  const r = routeOf(mode, a, b, ends);
+  return r ? pointAlong(r.pts, t) : { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+/** Does a flow step from a straight to b? */
+function flowHop(steps: string[], a: string, b: string): boolean {
+  for (let i = 0; i < steps.length - 1; i++) if (steps[i] === a && steps[i + 1] === b) return true;
+  return false;
+}
+
+const byIdOk = (doc: DesignDoc, id: string) => doc.nodes.some((n) => n.id === id);
 
 /** % of a load balancer's traffic that goes down one of its connections (null with fewer than two). */
 function lbEdgeShare(doc: DesignDoc, sim: SimResult, lbId: string, edgeId: string): number | null {
@@ -243,8 +303,53 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
   const dropOf = (id: string): 'ok' | 'bad' | null =>
     rw && rwEdge && rw.over === id ? (canRewire(doc, rw.edgeId, rw.end, id) ? 'ok' : 'bad') : null;
 
+  /* ---------- readability: shared infra, focus ---------- */
+  const view = ui.view ?? DEFAULT_VIEW;
+  const hubs = view.edges === 'smart' ? findHubs(doc) : new Set<string>();
+  // focus = what is selected (a node, several, or both ends of a connection); hover only lights up
+  const selEdge = sel?.type === 'edge' ? doc.edges.find((x) => x.id === sel.id) : undefined;
+  const focusIds = [...picked].filter((k) => k.startsWith('node:')).map((k) => k.slice(5));
+  if (selEdge) focusIds.push(selEdge.from, selEdge.to);
+  const focus = focusSet(doc, focusIds);
+  // one selected component: light its whole journey (users → it → everything it calls), numbered
+  const single = sel?.type === 'node' && !multi.length && !playing && !rw ? sel.id : null;
+  const journey = single ? traceJourney(doc, sim, single) : null;
+  const jp = journey && ui.journeyPlay?.focus === journey.focus ? ui.journeyPlay : null;
+  /** step reached by the playback (null = whole journey shown at once) */
+  const reached = jp ? jp.idx + 1 : null;
+  if (journey) { focus.nodes = new Set(journey.nodeStep.keys()); focus.edges = new Set(journey.edgeStep.keys()); }
+  const focused = focus.nodes.size > 0 && !playing && !rw;
+  const hover = ui.hover && byIdOk(doc, ui.hover) ? focusSet(doc, [ui.hover]) : null;
+  /** a line into a hub stays hidden unless something about it is in focus */
+  const hiddenEdge = (e: { id: string; from: string; to: string }) => hubs.has(e.to)
+    && !focus.edges.has(e.id) && !hover?.edges.has(e.id) && !(selEdge?.id === e.id) && rw?.edgeId !== e.id
+    && !(flowShown && flowHop(flowShown.steps, e.from, e.to));
+  const chipsOf = (id: string) => {
+    const label = (x: string) => sim.byId.get(x)?.label ?? x;
+    const hot = (x: string) => { const t = sim.byId.get(x); return !!t && (t.down || isOver(sim.load[x] ?? 0)); };
+    const outs = doc.edges.filter((e) => e.from === id && hiddenEdge(e) && !ownerOf('node', e.to)).map((e) => e.to);
+    const list = [...new Set(outs)].map((x) => ({ key: x, text: label(x), hot: hot(x) }));
+    const shown = list.slice(0, 3);
+    if (list.length > 3) shown.push({ key: '+more', text: `+${list.length - 3}`, hot: list.slice(3).some((c) => c.hot) });
+    if (hubs.has(id)) {
+      const callers = new Set(doc.edges.filter((e) => e.to === id).map((e) => e.from)).size;
+      shown.unshift({ key: 'callers', text: `← ${callers} callers`, hot: false });
+    }
+    return shown;
+  };
+
   /* ---------- nodes ---------- */
-  const nodes: NodeView[] = doc.nodes.filter((n) => !ownerOf('node', n.id)).map((n) => ({ ...buildNode(n, sim, ui, positions.get(n.id)!, stepsOf, playing), drop: dropOf(n.id), selected: isPicked('node', n.id) }));
+  const nodes: NodeView[] = doc.nodes.filter((n) => !ownerOf('node', n.id)).map((n) => {
+    const v = buildNode(n, sim, ui, positions.get(n.id)!, stepsOf, playing);
+    const js = journey?.nodeStep.get(n.id);
+    return {
+      ...v, drop: dropOf(n.id), selected: isPicked('node', n.id),
+      dim: v.dim || (focused && !focus.nodes.has(n.id)) || (reached != null && (js == null || js > reached)),
+      badge: js != null ? String(js) : v.badge,
+      tcur: reached != null && js === reached,
+      chips: chipsOf(n.id),
+    };
+  });
 
   /* ---------- edges ---------- */
   const edges: EdgeView[] = [];
@@ -264,20 +369,48 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     merged.set(k, m);
   }
   const drawnMerged = new Set<string>();
+  /** does a merged group line touch a focused node (through the collapsed group)? */
+  const mergedTouches = (mk: string, ids: Set<string>) => doc.edges.some((x) => mergeKey(x) === mk && (ids.has(x.from) || ids.has(x.to)));
   const CARD_R = Math.min(GROUP_CARD.w, GROUP_CARD.h) / 2;
+
+  // which lines get drawn (hub lines hidden, one line per merged group pair)
+  const drawn: DesignEdge[] = [];
   for (const e of doc.edges) {
-    const a = sim.byId.get(e.from), b = sim.byId.get(e.to);
-    if (!a || !b) continue;
+    if (!sim.byId.get(e.from) || !sim.byId.get(e.to)) continue;
     const mk = mergeKey(e);
-    if (mk === 'internal') continue;
+    if (mk === 'internal' || (!mk && hiddenEdge(e))) continue;
     if (mk) { if (drawnMerged.has(mk)) continue; drawnMerged.add(mk); }
+    drawn.push(e);
+  }
+  // each line gets its own port on both ends, ordered by where the other end sits (fewer crossings)
+  const endKey = (id: string) => { const g = ownerOf('node', id); return g ? `g:${g}` : id; };
+  const posOf = (id: string) => positions.get(id)![0];
+  const ports = (side: 'from' | 'to') => {
+    const other = side === 'from' ? 'to' : 'from';
+    const bySide = new Map<string, DesignEdge[]>();
+    for (const e of drawn) { const k = endKey(e[side]); bySide.set(k, [...(bySide.get(k) ?? []), e]); }
+    const out = new Map<string, number>();
+    for (const list of bySide.values()) {
+      list.sort((x, y) => posOf(x[other]).y - posOf(y[other]).y || posOf(x[other]).x - posOf(y[other]).x);
+      const offs = portOffsets(list.length);
+      list.forEach((e, i) => out.set(e.id, offs[i]));
+    }
+    return out;
+  };
+  const outPort = ports('from'), inPort = ports('to');
+  const hoverE = ui.hoverEdge && drawn.some((e) => e.id === ui.hoverEdge) ? ui.hoverEdge : null;
+
+  for (const e of drawn) {
+    const a = sim.byId.get(e.from)!, b = sim.byId.get(e.to)!;
+    const mk = mergeKey(e);
     const intoCard = !!ownerOf('node', b.id);
     const A = positions.get(a.id)!, B = positions.get(b.id)!;
     const kb = KINDS[b.kind];
     const r = intoCard ? CARD_R : (Math.min(kb.w, kb.h) / 2 - 4) * nodeScale(b, sim);
     const agg = mk ? merged.get(mk)! : null;
     const rps = agg ? agg.rps : sim.edgeRps[e.id] ?? 0;
-    const fail = (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.load[b.id] ?? 0));
+    const failR = failShare(b.down, !!sim.cacheBypass[b.id], sim.load[b.id] ?? 0);
+    const fail = failR > 0;
 
     const pairs: [Point, Point, number][] = [];
     if (agg) pairs.push([A[0], B[0], 1]);
@@ -310,16 +443,29 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     const rA = ownerOf('node', a.id) ? CARD_R : (Math.min(ka.w, ka.h) / 2 - 4) * nodeScale(a, sim);
     const seg0 = segment(A[0], B[0]);
     const ux = seg0.len > 0 ? (B[0].x - A[0].x) / seg0.len : 0, uy = seg0.len > 0 ? (B[0].y - A[0].y) / seg0.len : 0;
+    const routed = view.route === 'curve' ? curveRoute(A[0], B[0], { fromR: rA, toR: r + 2, fromPort: outPort.get(e.id) ?? 0, toPort: inPort.get(e.id) ?? 0 }) : null;
     const handles = isSel && !agg && !ui.readOnly && !playing && !rw
-      ? { from: { x: Math.round(A[0].x + ux * rA), y: Math.round(A[0].y + uy * rA) }, to: { x: Math.round(B[0].x - ux * (r + 2)), y: Math.round(B[0].y - uy * (r + 2)) } }
+      ? routed
+        ? { from: { x: Math.round(routed.pts[0].x), y: Math.round(routed.pts[0].y) }, to: { x: Math.round(routed.arrow.x), y: Math.round(routed.arrow.y) } }
+        : { from: { x: Math.round(A[0].x + ux * rA), y: Math.round(A[0].y + uy * rA) }, to: { x: Math.round(B[0].x - ux * (r + 2)), y: Math.round(B[0].y - uy * (r + 2)) } }
       : null;
     const lbShare = a.kind === 'lb' ? lbEdgeShare(doc, sim, a.id, e.id) : null;
+    const mode = view.route;
+    const endsOf = (scale: number): Ends => ({ fromR: rA, toR: r * scale + 2, fromPort: outPort.get(e.id) ?? 0, toPort: inPort.get(e.id) ?? 0 });
+    const mid = along(A[0], B[0], 0.5, mode, endsOf(1));
+    const tone: EdgeView['tone'] = fail ? 'fail' : (sim.load[b.id] ?? 0) >= 0.7 ? 'busy' : 'ok';
+    const isHover = hoverE === e.id;
+    const toLabel = agg && agg.count > 1 ? `${agg.count} connections` : `${a.label} → ${b.label}`;
+    const tip = isHover
+      ? [toLabel, `${fmtCompact(rps)} rps`, agg ? '' : `${Math.round(sim.nodeLatency[b.id] ?? 0)} ms`, tone === 'fail' ? 'failing' : tone === 'busy' ? 'busy' : ''].filter(Boolean).join(' · ')
+      : null;
 
     edges.push({
       id: e.id,
       lines: pairs.map(([p, q, scale], i) => {
         const rpsI = perRep ? perRep[i] ?? 0 : each;
-        const failI = perRep ? (b.down && b.kind !== 'cache') || (!b.down && isOver(sim.repLoad[b.id]?.[i] ?? 0)) : fail;
+        const failRI = perRep ? failShare(b.down, !!sim.cacheBypass[b.id], sim.repLoad[b.id]?.[i] ?? 0) : failR;
+        const failI = failRI > 0;
         const key = `${e.id}-${i}`;
         const retract = i === pairs.length - 1 && (drainTo || drainFrom);
         if (lbAlgo) {
@@ -328,8 +474,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
           const share = mine.reduce((t, x) => t + x.share, 0);
           const lineRps = mine.reduce((t, x) => t + x.rps, 0);
           const idx = Math.max(0, lbList.findIndex((x) => x === mine[0]));
-          const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failI, key) : [];
-          const lv = line(key, p, q, r * scale, pk, retract);
+          const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failRI, key) : [];
+          const lv = line(key, p, q, r * scale, pk, retract, mode, endsOf(scale));
           if (lbList.length > 1 && lineRps >= MIN_VISIBLE_RPS) {
             const pct = `${Math.round(share * 100)}%`;
             const lat = (sim.nodeLatency[b.id] ?? KINDS[b.kind].lat) / 1000;
@@ -337,24 +483,37 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
               : lbAlgo === 'wrr' ? `w${e.weight || 1} · ${pct}`
               : lbAlgo === 'lc' ? `${fmtCompact(lineRps * lat)} conns · ${pct}`
               : `${pct} of users`;
-            const t = 0.68;
-            lv.tag = { text, x: Math.round(p.x + (q.x - p.x) * t), y: Math.round(p.y + (q.y - p.y) * t), hot: failI && !b.down };
+            const at = along(p, q, 0.82, mode, endsOf(scale));
+            lv.tag = { text, x: Math.round(at.x), y: Math.round(at.y), hot: failI && !b.down };
           }
           return lv;
         }
-        let pk = ui.running ? packets(rpsI, e.mode === 'async', failI, key) : [];
+        let pk = ui.running && !sim.breakerOpen[e.id] ? packets(rpsI, e.mode === 'async', failRI, key) : [];
         if (intoHash) pk = pk.map((x, j) => ({ ...x, tone: j % TONES }));
-        return line(key, p, q, r * scale, pk, retract);
+        const lv = line(key, p, q, r * scale, pk, retract, mode, endsOf(scale));
+        // what this connection is doing, when it matters: breaker open > retry storm > fan-out
+        const amp = sim.retryAmp[e.id] ?? 1;
+        const tagText = i > 0 ? null : sim.breakerOpen[e.id] ? 'breaker open' : amp > 1.05 ? `retries ×${amp.toFixed(1)}` : (e.calls ?? 0) > 1 ? `${e.calls}× per request` : null;
+        const at = along(p, q, 0.68, mode, endsOf(scale));
+        if (tagText) lv.tag = { text: tagText, x: Math.round(at.x), y: Math.round(at.y), hot: !!sim.breakerOpen[e.id] || amp > 1.05 };
+        return lv;
       }),
       async: e.mode === 'async',
       selected: isSel || inMulti,
-      dim: playing || rw?.edgeId === e.id,
+      dim: playing || rw?.edgeId === e.id || (!!hoverE && !isHover) || (!hoverE && focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes)))
+        || (reached != null && (journey!.edgeStep.get(e.id) ?? Infinity) > reached),
+      tcur: reached != null && journey!.edgeStep.get(e.id) === reached,
+      hl: isHover || !!hover?.edges.has(e.id) || (focused && focus.edges.has(e.id)),
+      read: e.op === 'read',
+      weight: agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1,
+      tone,
+      tip,
       label: agg && agg.count > 1
         ? `${agg.count} connections`
         : (e.route ? e.route + ' · ' : '') + e.proto + (e.mode === 'async' ? ' · async' : '') + (e.op !== 'both' ? ' · ' + e.op : '') + (lbShare != null ? ` · ${lbShare}%` : ''),
       showLabel: !ui.isLesson || isSel,
-      labelX: Math.round((A[0].x + B[0].x) / 2),
-      labelY: Math.round((A[0].y + B[0].y) / 2),
+      labelX: Math.round(mid.x),
+      labelY: Math.round(mid.y),
       handles,
     });
   }
@@ -393,13 +552,17 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     for (let i = 0; i < flowShown.steps.length - 1; i++) {
       const a = positions.get(flowShown.steps[i])?.[0], b = positions.get(flowShown.steps[i + 1])?.[0];
       if (!a || !b) continue;
-      const s = segment(a, b);
       const idx = flowPlay?.idx ?? -1;
-      flow.push({
-        key: `fs-${i}`, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2),
-        state: !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next',
-        token: !!flowPlay && i === idx,
-      });
+      const state = !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next';
+      const pts = view.route === 'elbow' ? elbowRoute(a, b, 0).pts : view.route === 'curve' ? curveRoute(a, b, { fromR: 0, toR: 0 }).pts : [a, b];
+      for (let j = 0; j < pts.length - 1; j++) {
+        if (Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].y - pts[j].y) < 0.5) continue;
+        const s = segment(pts[j], pts[j + 1]);
+        flow.push({
+          key: `fs-${i}-${j}`, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), state,
+          token: !!flowPlay && i === idx && j === Math.floor((pts.length - 1) / 2),
+        });
+      }
     }
   }
 
@@ -425,7 +588,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       };
     }
     return {
-      id: g.id, x: g.x, y: g.y,
+      id: g.id, x: g.collapsed ? cardLeft(g) : g.x, y: g.y,
       w: g.collapsed ? GROUP_CARD.w : g.w, h: g.collapsed ? GROUP_CARD.h : g.h,
       label: g.label,
       border: GROUP_COLORS[g.color]?.border ?? GROUP_COLORS.blue.border,
@@ -435,12 +598,24 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       summary,
     };
   });
-  const notes: NoteView[] = doc.notes.filter((t) => !ownerOf('note', t.id)).map((t) => ({ ...t, selected: isPicked('note', t.id) }));
+  const notes: NoteView[] = doc.notes.filter((t) => !ownerOf('note', t.id)).map((t) => {
+    const selected = isPicked('note', t.id);
+    return { ...t, selected, open: view.notes === 'open' || selected || !t.text.trim() };
+  });
 
   const mq = ui.marquee;
   const marquee = mq ? { x: Math.min(mq.x1, mq.x2), y: Math.min(mq.y1, mq.y2), w: Math.abs(mq.x2 - mq.x1), h: Math.abs(mq.y2 - mq.y1) } : null;
 
-  return { nodes, edges, replication, flow, groups, notes, rewire, marquee };
+  const journeyView: JourneyView | null = journey ? {
+    focus: journey.focus,
+    label: sim.byId.get(journey.focus)?.label ?? journey.focus,
+    steps: journey.steps,
+    idx: jp ? jp.idx : null,
+    playing: !!jp?.playing,
+    caption: jp ? journey.captions[jp.idx] ?? '' : `${journey.steps} step${journey.steps === 1 ? '' : 's'} from the users to everything it calls`,
+  } : null;
+
+  return { journey: journeyView, nodes, edges, replication, flow, groups, notes, rewire, marquee };
 }
 
 function buildNode(
@@ -466,7 +641,10 @@ function buildNode(
   if (fanned && reps > pos.length) below += ` · +${reps - pos.length} more`;
 
   let warn: string | null = null;
-  if (n.down) warn = n.kind === 'cache' ? 'offline · reads fall through to DB' : 'node offline';
+  if (n.down) warn = n.kind !== 'cache' ? 'node offline' : sim.cacheBypass[n.id] ? 'offline · reads fall through to DB' : 'offline · reads fail (no DB behind it)';
+  else if (n.kind === 'cache' && sim.cacheRefill[n.id] === false) warn = (sim.cacheHit[n.id] ?? 0) > 0 ? `DB offline · keys expiring · ${Math.round((sim.cacheHit[n.id] ?? 0) * 100)}% hits` : 'DB offline · cache empty';
+  else if (n.kind === 'cache' && (sim.cacheHit[n.id] ?? CACHE_HIT) < CACHE_HIT - 0.005) warn = `warming up · ${Math.round((sim.cacheHit[n.id] ?? 0) * 100)}% hits`;
+  else if (n.kind === 'db' && sim.dbConns[n.id] && sim.dbConns[n.id].need > sim.dbConns[n.id].limit) warn = `too many connections · ${fmtInt(sim.dbConns[n.id].need)}/${fmtInt(sim.dbConns[n.id].limit)}`;
   else if (sim.needsLB[n.id]) warn = 'needs a load balancer';
   else if (lp.hot) warn = n.kind === 'ext' ? 'rate limited' : auto && reps >= n.autoscale.max ? 'hit max replicas' : k.perCpu && sizeIdx === 4 && reps === 1 ? 'largest machine you can buy' : 'over capacity';
 
@@ -528,7 +706,8 @@ function buildNode(
     const trend = state === 'growing' ? `+${fmtCompact(growth)}/s`
       : state === 'draining' ? `empty in ~${Math.max(1, Math.ceil(depth / -growth))}s`
       : state === 'full' ? 'full' : (q?.inRate ?? 0) > 0 ? `${fmtCompact(q!.inRate)}/s flowing` : 'idle';
-    below = [n.label, trend].join(' · ');
+    const subs = q?.mode === 'pubsub' ? `pub/sub → ${q.subscribers.length}` : '';
+    below = [n.label, subs, trend].filter(Boolean).join(' · ');
     if (!n.down && q?.full) warn = 'queue full · rejecting messages';
     else if (!n.down && q && q.inRate > 0 && q.consumers === 0) warn = 'no consumer · messages pile up';
     const rate = Math.max(q?.inRate ?? 0, q?.outRate ?? 0);
@@ -562,5 +741,6 @@ function buildNode(
     crosshair: ui.tool === 'connect' || !!ui.recording,
     extras,
     queue,
+    chips: [],
   };
 }

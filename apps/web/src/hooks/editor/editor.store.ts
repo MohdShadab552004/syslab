@@ -14,9 +14,11 @@ import {
 /*  State shape                                                        */
 /* ------------------------------------------------------------------ */
 
-import type { FlowPlayback, InspectorTab, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
+import type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
 import { groupMembers } from '@/lib/canvas/groups';
-export type { FlowPlayback, InspectorTab, Marquee, Pick, SaveState, Selection, Toast, Tool };
+import { loadViewPrefs, saveViewPrefs, type ViewPrefs } from '@/lib/canvas/readability';
+import { layout } from '@syslab/spec';
+export type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool };
 
 interface UiState {
   tool: Tool;
@@ -36,6 +38,14 @@ interface UiState {
   multi: Pick[];
   /** box-select rectangle while dragging on empty canvas */
   marquee: Marquee | null;
+  /** node under the pointer */
+  hover: string | null;
+  /** connection under the pointer */
+  hoverEdge: string | null;
+  /** step-by-step playback of the selected component's journey */
+  journeyPlay: JourneyPlayback | null;
+  /** how the canvas draws the design (per browser) */
+  view: ViewPrefs;
 }
 
 export type EdgeEnd = 'from' | 'to';
@@ -67,6 +77,7 @@ interface ClipBundle { nodes: DesignNode[]; groups: DesignGroup[]; notes: Design
 const initialUi: UiState = {
   tool: 'select', sel: null, pending: null, dragging: false, recording: null, flowPlay: null,
   tab: 'inspect', shareOpen: false, toast: null, query: '', running: true, rewire: null, multi: [], marquee: null,
+  hover: null, hoverEdge: null, journeyPlay: null, view: loadViewPrefs(),
 };
 
 /** Everything selected right now, as picks (a selected connection is not included). */
@@ -258,7 +269,14 @@ function createActions(set: Set, get: Get) {
 
     /* ---------- ui ---------- */
     setTool(tool: Tool) { set((s) => { s.ui.tool = tool; s.ui.pending = null; if (tool === 'connect') s.ui.recording = null; }); },
-    select(sel: Selection) { set((s) => { s.ui.sel = sel; s.ui.multi = []; if (sel) s.ui.tab = 'inspect'; }); },
+    select(sel: Selection) {
+      set((s) => {
+        s.ui.sel = sel; s.ui.multi = [];
+        if (sel) s.ui.tab = 'inspect';
+        // a journey belongs to the component it started from
+        if (s.ui.journeyPlay && !(sel?.type === 'node' && sel.id === s.ui.journeyPlay.focus)) s.ui.journeyPlay = null;
+      });
+    },
     clearSelection() { set((s) => { if (s.ui.sel || s.ui.pending || s.ui.multi.length) { s.ui.sel = null; s.ui.pending = null; s.ui.multi = []; } }); },
 
     /* ---------- multi-selection ---------- */
@@ -338,8 +356,59 @@ function createActions(set: Set, get: Get) {
     setRewire(r: Rewire | null) { set((s) => { s.ui.rewire = r; }); },
     setDragging(dragging: boolean) { if (dragging) breakMerge(); set((s) => { s.ui.dragging = dragging; }); },
     toggleRunning() { set((s) => { s.ui.running = !s.ui.running; }); },
+    setHover(id: string | null) { if (get().ui.hover !== id) set((s) => { s.ui.hover = id; }); },
+    setHoverEdge(id: string | null) { if (get().ui.hoverEdge !== id) set((s) => { s.ui.hoverEdge = id; }); },
+    setView(patch: Partial<ViewPrefs>) {
+      set((s) => { s.ui.view = { ...s.ui.view, ...patch }; });
+      saveViewPrefs(get().ui.view);
+    },
+    /** Collapse (or expand) every group at once. */
+    setAllGroupsCollapsed(collapsed: boolean) {
+      const doc = get().doc;
+      if (!doc || !doc.groups.some((g) => !!g.collapsed !== collapsed)) return;
+      edit((d, s) => {
+        for (const g of d.groups) g.collapsed = collapsed;
+        if (collapsed) {
+          // members of collapsed groups are hidden, so they cannot stay selected
+          const hidden = new Set(d.groups.flatMap((g) => groupContents(d, g.id).filter((p) => p.type !== 'group' || p.id !== g.id)).map((p) => `${p.type}:${p.id}`));
+          if (s.ui.sel && s.ui.sel.type !== 'edge' && hidden.has(`${s.ui.sel.type}:${s.ui.sel.id}`)) s.ui.sel = null;
+          s.ui.multi = s.ui.multi.filter((p) => !hidden.has(`${p.type}:${p.id}`));
+        }
+      });
+    },
+    /**
+     * Re-arrange everything left to right in layers (users → edge → services → data), with each
+     * group in its own band, so lines cross less. Notes keep their place next to their nearest node.
+     */
+    autoLayout() {
+      const doc = get().doc;
+      if (!doc || !doc.nodes.length) return;
+      const members = doc.groups.map((g) => groupMembers(doc, g).nodes);
+      const L = layout(doc.nodes, doc.edges, members);
+      edit((d) => {
+        const anchor = d.notes.map((t) => {
+          let best: DesignNode | null = null, dist = Infinity;
+          for (const n of d.nodes) { const k = Math.hypot(n.x - t.x, n.y - t.y); if (k < dist) { dist = k; best = n; } }
+          return best ? { id: best.id, dx: t.x - best.x, dy: t.y - best.y } : null;
+        });
+        for (const n of d.nodes) { const p = L.nodes.get(n.id); if (p) { n.x = p.x; n.y = p.y; } }
+        d.groups.forEach((g, i) => { if (members[i].length) Object.assign(g, L.groupBox(members[i])); });
+        d.notes.forEach((t, i) => {
+          const a = anchor[i], n = a && d.nodes.find((x) => x.id === a.id);
+          if (a && n) { t.x = n.x + a.dx; t.y = n.y + a.dy; }
+        });
+      });
+      get().actions.toast('Laid out left to right · Ctrl+Z to undo');
+    },
     /** Throw away every message waiting in a queue. */
-    purgeQueue(id: string) { set((s) => { s.runtime.qDepth = { ...s.runtime.qDepth }; delete s.runtime.qDepth[id]; }); toast('Queue purged'); },
+    purgeQueue(id: string) {
+      // a pub/sub queue keeps one backlog per subscriber (keys "queue>edge")
+      set((s) => { s.runtime.qDepth = Object.fromEntries(Object.entries(s.runtime.qDepth).filter(([k]) => k !== id && !k.startsWith(`${id}>`))); });
+      toast('Queue purged');
+    },
+    updateQueue(id: string, patch: Partial<NonNullable<DesignNode['queuec']>>) {
+      edit((doc) => { const n = findNode(doc, id); if (n) n.queuec = { ...(n.queuec ?? {}), ...patch }; }, `queue:${id}:${keysOf(patch)}`);
+    },
     setSpike(spike: number) { set((s) => { s.runtime.spike = spike; }); },
     toast,
     clearToast() { set((s) => { s.ui.toast = null; }); },
@@ -412,6 +481,9 @@ function createActions(set: Set, get: Get) {
     },
     updateLb(id: string, patch: Partial<NonNullable<DesignNode['lbc']>>) {
       edit((doc) => { const n = findNode(doc, id); if (n) n.lbc = { ...(n.lbc ?? {}), ...patch }; }, `lb:${id}:${keysOf(patch)}`);
+    },
+    updateCache(id: string, patch: Partial<NonNullable<DesignNode['cachec']>>) {
+      edit((doc) => { const n = findNode(doc, id); if (n) n.cachec = { ...(n.cachec ?? {}), ...patch }; }, `cache:${id}:${keysOf(patch)}`);
     },
     toggleDown(id: string) { edit((doc) => { const n = findNode(doc, id); if (n) n.down = !n.down; }); },
     deleteNode(id: string) {
@@ -575,6 +647,9 @@ function createActions(set: Set, get: Get) {
       set((s) => { s.ui.flowPlay = { id, idx: 0, playing: true }; s.ui.recording = null; });
     },
     setFlowPlay(fp: FlowPlayback | null) { set((s) => { s.ui.flowPlay = fp; }); },
+    /** Play the journey of a component from the users, one step per second. */
+    playJourney(focus: string) { set((s) => { s.ui.journeyPlay = { focus, idx: 0, playing: true, at: Date.now() }; s.ui.flowPlay = null; s.ui.recording = null; }); },
+    setJourneyPlay(jp: JourneyPlayback | null) { set((s) => { s.ui.journeyPlay = jp; }); },
 
     /* ---------- lesson ---------- */
     loadLessonStep(step: number) {
@@ -617,7 +692,7 @@ function createActions(set: Set, get: Get) {
       if (!clip) return false;
       clipboard = clip; pasteCount = 0;
       const n = clip.nodes.length + clip.groups.length + clip.notes.length;
-      if (n > 1) toast(`Copied ${n} items${clip.edges.length ? ` + ${clip.edges.length} connections` : ''}`);
+      if (n > 1) toast(`Copied ${n} items${clip.edges.length ? ` + ${clip.edges.length} connection${clip.edges.length === 1 ? '' : 's'}` : ''}`);
       return true;
     },
     cutSelection() {

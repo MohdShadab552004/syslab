@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+# a newer push to the same branch cancels the older run
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Build, typecheck, test (95% coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # prisma generate needs a value; no database is contacted in CI
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api
+      TURBO_TELEMETRY_DISABLED: 1
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from "packageManager" in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (packages, API with Prisma client, web)
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test with coverage (fails under 95%)
+        run: pnpm test:coverage
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          node -e '
+            const fs = require("fs");
+            if (!fs.existsSync("coverage/coverage-summary.json")) process.exit(0);
+            const t = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+            const row = (k) => `| ${k} | ${t[k].pct}% | ${t[k].covered} / ${t[k].total} |`;
+            const md = ["### Test coverage", "", "| Metric | Coverage | Covered |", "|---|---|---|",
+              ...["lines", "statements", "functions", "branches"].map(row)].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+          '
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14

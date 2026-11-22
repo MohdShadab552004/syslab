@@ -1,5 +1,5 @@
 import type { DesignDoc, DesignGroup } from '@syslab/types';
-import { DEFAULT_AUTOSCALE, KINDS, SIZES, dbConfig, lbConfig } from '@syslab/sim';
+import { DEFAULT_AUTOSCALE, KINDS, SIZES, cacheConfig, dbConfig, lbConfig, queueConfig } from '@syslab/sim';
 import { SIZE_VALUES, type DesignSpecInput } from './schema';
 
 const LB_NAME = { rr: 'round_robin', wrr: 'weighted', lc: 'least_connections', hash: 'ip_hash' } as const;
@@ -20,8 +20,9 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
   const label = new Map<string, string>();
   const used = new Set<string>();
   for (const n of doc.nodes) {
-    let l = n.label.trim() || KINDS[n.kind].name;
-    for (let i = 2; used.has(l.toLowerCase()); i++) l = `${n.label} (${i})`;
+    const base = n.label.trim() || KINDS[n.kind].name;
+    let l = base;
+    for (let i = 2; used.has(l.toLowerCase()); i++) l = `${base} (${i})`;
     used.add(l.toLowerCase());
     label.set(n.id, l);
   }
@@ -47,8 +48,11 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
         ...(k.canAuto && as.on && (as.mode === 'v'
           ? { autoscale: { mode: 'vertical' as const, minSize: sizeName(as.minSize), maxSize: sizeName(as.maxSize), targetCpu: as.target } }
           : { autoscale: { mode: 'horizontal' as const, min: as.min, max: as.max, targetCpu: as.target } })),
-        ...(D && { database: { shards: D.shards, readReplicas: D.replicas, syncReplication: D.sync, shardKey: D.shardKey, shardStrategy: D.strategy } }),
+        ...(D && { database: { shards: D.shards, readReplicas: D.replicas, syncReplication: D.sync, shardKey: D.shardKey, shardStrategy: D.strategy, ...(D.maxConn > 0 && { maxConnections: D.maxConn }) } }),
+        ...(n.measured && (n.measured.rps || n.measured.ms) && { measured: { ...(n.measured.rps && { requestsPerSecond: n.measured.rps }), ...(n.measured.ms && { latencyMs: n.measured.ms }) } }),
         ...(L && { loadBalancer: { algorithm: LB_NAME[L.algo], ...(L.algo === 'hash' && { virtualNodes: L.vnodes as 1 | 10 | 100 }) } }),
+        ...(n.kind === 'cache' && { cache: { ttlSeconds: cacheConfig(n).ttl } }),
+        ...(n.kind === 'queue' && { queue: { mode: queueConfig(n).mode } }),
         ...(n.down && { offline: true }),
       };
     }),
@@ -60,6 +64,9 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
       ...(e.op !== 'both' && { carries: e.op }),
       ...((e.weight || 1) !== 1 && { weight: e.weight }),
       ...(e.route && { route: e.route }),
+      ...(e.calls && { callsPerRequest: e.calls }),
+      ...(e.retries && { retries: e.retries }),
+      ...(e.breaker && { circuitBreaker: true }),
     })),
     groups: doc.groups.map((g) => ({ name: g.label, color: g.color, members: membersOf(doc, g).map((id) => label.get(id)!), ...(g.collapsed && { collapsed: true }) }))
       .filter((g) => g.members.length > 0),

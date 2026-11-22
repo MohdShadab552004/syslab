@@ -24,6 +24,36 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
         </Card>
       )}
 
+      {v.cache && (
+        <Card>
+          <div className="row"><SectionLabel>Cache</SectionLabel><span className={v.cache.state.bad ? 'v bad' : 'v'}>{v.cache.state.text}</span></div>
+          <Row label="Hit rate" value={v.cache.hit} />
+          <div className="flab">Key TTL</div>
+          <OptionGroup options={v.cache.ttl} />
+          <Hint>{v.cache.hint}</Hint>
+        </Card>
+      )}
+
+      {v.queue && (
+        <Card>
+          <SectionLabel>Delivery</SectionLabel>
+          <OptionGroup layout="grid" options={v.queue.modes} />
+          <Hint>{v.queue.modeHint}</Hint>
+          {v.queue.subscribers.length > 0 && (
+            <>
+              <div className="flab">Subscribers</div>
+              {v.queue.subscribers.map((s) => (
+                <div key={s.key} className="lbrow">
+                  <span className="lbname">{s.label}</span>
+                  <span className="lbshare">{s.rate}</span>
+                  <span className={s.bad ? 'v bad' : 'v'}>{s.behind}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </Card>
+      )}
+
       {v.queue && (
         <Card>
           <div className="row"><SectionLabel>Backlog</SectionLabel><span className={v.queue.trend.bad ? 'v bad' : 'v'}>{v.queue.trend.text}</span></div>
@@ -128,6 +158,14 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
             )}
             <Hint>{v.db.partitionHint}</Hint>
           </Card>
+          {v.db.conns && (
+            <Card>
+              <div className="row"><SectionLabel>Client connections</SectionLabel><span className={v.db.conns.bad ? 'v bad' : 'v'}>{v.db.conns.text}</span></div>
+              <div className="flab">Max connections per server</div>
+              <OptionGroup options={v.db.conns.options} />
+              <Hint>{v.db.conns.hint}</Hint>
+            </Card>
+          )}
         </>
       )}
 
@@ -140,6 +178,20 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
           {v.db && <><Row label="Write load (primary)" value={v.db.writeLoad} /><Row label="Read load (each reader)" value={v.db.readLoad} /></>}
           <Row label="Added latency" value={v.stats.latency} />
           <Row label="Cost / month" value={v.stats.cost} />
+        </Card>
+      )}
+
+      {v.perf && (
+        <Card>
+          <SectionLabel>Performance</SectionLabel>
+          <Row label="Workers × time each" value={v.perf.workers} />
+          <Row label="Waiting in line" value={v.perf.wait} />
+          <div className="segs">
+            <TextField small label="Measured req/s per instance" inputMode="numeric" value={v.perf.measured.rps} onValue={v.perf.measured.onRps} placeholder={v.perf.measured.estRps} />
+            <TextField small label="Measured ms per request" inputMode="decimal" value={v.perf.measured.ms} onValue={v.perf.measured.onMs} placeholder={v.perf.measured.estMs} />
+          </div>
+          <Hint>{v.perf.note}</Hint>
+          {v.perf.measured.onClear && <Button size="sm" onClick={v.perf.measured.onClear}>Use estimates</Button>}
         </Card>
       )}
 

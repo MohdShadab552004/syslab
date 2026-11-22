@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
 import {
-  GROUP_COLORS, ICONS, KINDS, LB_ALGOS, SIZES, TECHS, congestion, dbConfig, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
+  CACHE_HIT, GROUP_COLORS, ICONS, KINDS, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
 } from '@syslab/sim';
 import { canRewire, useEditorStore, type EdgeEnd, type EditorActions } from './editor.store';
@@ -59,6 +59,13 @@ export interface NodeInspectorView {
     partitionHint: string;
     writeLoad: string;
     readLoad: string;
+    conns: { text: string; bad: boolean; options: OptionView[]; hint: string } | null;
+  } | null;
+  perf: {
+    note: string;
+    workers: string;
+    wait: string;
+    measured: { rps: string; ms: string; estRps: string; estMs: string; onRps: (v: string) => void; onMs: (v: string) => void; onClear: (() => void) | null };
   } | null;
   lb: {
     algos: OptionView[];
@@ -68,7 +75,16 @@ export interface NodeInspectorView {
     spread: { text: string; bad: boolean };
     empty: boolean;
   } | null;
+  cache: {
+    ttl: OptionView[];
+    hit: string;
+    state: { text: string; bad: boolean };
+    hint: string;
+  } | null;
   queue: {
+    modes: OptionView[];
+    modeHint: string;
+    subscribers: { key: string; label: string; behind: string; rate: string; bad: boolean }[];
     waiting: string;
     fill: LoadView;
     inRate: string;
@@ -98,6 +114,8 @@ export interface EdgeInspectorView {
   route: { value: string; onChange: (v: string) => void } | null;
   weight: StepperView;
   weightNote: string | null;
+  calls: OptionView[] | null;
+  resilience: { retries: OptionView[]; breaker: { on: boolean; onToggle: () => void }; state: string; bad: boolean; hint: string } | null;
   share: string;
   rps: string;
   onSlowPath: string;
@@ -144,7 +162,7 @@ export interface MultiInspectorView {
 }
 
 /* ---------- builders ---------- */
-function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions): NodeInspectorView {
+export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions): NodeInspectorView {
   const k = KINDS[n.kind], id = n.id, ld = sim.load[id] ?? 0;
   const hot = !n.down && isOver(ld), busy = !n.down && ld >= 0.7;
   const auto = isHorizontalAuto(n), autoV = isVerticalAuto(n), as = n.autoscale;
@@ -205,6 +223,20 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
         : ({ time: `One partition per period of ${pkey}. Old months can be archived or dropped instantly.`, list: `Rows grouped by a value of ${pkey}, like country or status.`, hash: `Rows spread across ${D.parts} partitions by hash(${pkey}).` }[D.partition]) + ` Queries that filter on ${pkey} scan less, ~30% faster.`,
       writeLoad: loadView(dl.w, n.down).pct,
       readLoad: loadView(dl.r, n.down).pct,
+      conns: (() => {
+        const limitPer = dbConnLimit(n);
+        if (!limitPer) return null;
+        const c = sim.dbConns[id], limit = limitPer * D.shards * (1 + D.replicas), need = c?.need ?? 0;
+        const def = techProfile(n).conn ?? 100;
+        return {
+          text: `${fmtInt(need)} needed / ${fmtInt(limit)} allowed`,
+          bad: need > limit,
+          options: opts<number>([[0, `${def} (default)`], [500, '500'], [2000, '2,000'], [10000, '10k · pooler']], D.maxConn, (v) => a.updateDb(id, { maxConn: v })),
+          hint: need > limit
+            ? `Every app or worker instance keeps ${POOL_PER_INSTANCE} connections open, so ${fmtInt(need)} are needed but the servers take only ${fmtInt(limit)}. The rest are refused ("too many clients") and ${Math.round((1 - limit / need) * 100)}% of queries fail. Put a pooler like PgBouncer in front (10k), raise max_connections, or add read replicas.`
+            : `Each app or worker instance keeps ${POOL_PER_INSTANCE} connections open. Scaling out adds connections, so watch this limit during a spike.`,
+        };
+      })(),
     };
   }
 
@@ -243,13 +275,69 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
     };
   }
 
+  let perf: NodeInspectorView['perf'] = null;
+  if (n.kind !== 'users') {
+    const m = n.measured ?? {};
+    const est = { ...n, measured: undefined };
+    const S = sim.service[id] ?? serviceTime(n), W = sim.workers[id] ?? 1, wait = sim.waitMs[id] ?? 0;
+    const setM = (patch: { rps?: number; ms?: number }) => {
+      const next = { ...m, ...patch };
+      a.updateNode(id, { measured: next.rps || next.ms ? next : undefined });
+    };
+    const num = (v: string) => { const x = Number(v.replace(/[, ]/g, '')); return Number.isFinite(x) && x > 0 ? x : undefined; };
+    perf = {
+      note: [techProfile(n).note, m.rps || m.ms ? 'Using your measured numbers.' : 'These are estimates; type numbers from a load test to replace them.'].filter(Boolean).join(' '),
+      workers: k.async ? '—' : `${fmtInt(W)} × ${S < 10 ? S.toFixed(1) : Math.round(S)} ms`,
+      wait: n.down ? '—' : wait < 0.05 ? 'none' : `${wait < 10 ? wait.toFixed(1) : Math.round(wait)} ms avg`,
+      measured: {
+        rps: m.rps ? String(m.rps) : '', ms: m.ms ? String(m.ms) : '',
+        estRps: fmtInt(capacityPerInstance(est)), estMs: String(Math.round(serviceTime(est) * 10) / 10),
+        onRps: (v) => setM({ rps: num(v) }), onMs: (v) => setM({ ms: num(v) }),
+        onClear: m.rps || m.ms ? () => a.updateNode(id, { measured: undefined }) : null,
+      },
+    };
+  }
+
+  let cache: NodeInspectorView['cache'] = null;
+  if (n.kind === 'cache') {
+    const C = cacheConfig(n), h = sim.cacheHit[id] ?? CACHE_HIT, refill = sim.cacheRefill[id];
+    const ttlText = C.ttl >= 3600 ? `${C.ttl / 3600} h` : C.ttl >= 60 ? `${C.ttl / 60} min` : `${C.ttl} s`;
+    cache = {
+      ttl: opts<number>([[10, '10s'], [30, '30s'], [60, '1m'], [300, '5m'], [3600, '1h']], C.ttl, (v) => a.updateCache(id, { ttl: v })),
+      hit: n.down ? '—' : `${Math.round(h * 100)}% of reads`,
+      state: n.down ? { text: 'Offline · contents lost', bad: true }
+        : refill === false ? { text: h > 0 ? `DB offline · empty in ~${Math.ceil((h / CACHE_HIT) * C.ttl)}s` : 'DB offline · empty', bad: true }
+        : h < CACHE_HIT - 0.005 ? { text: 'Warming up', bad: false }
+        : { text: 'Warm', bad: false },
+      hint: n.down
+        ? 'Memory is lost while it is offline. When it comes back it starts empty: every read misses and goes to the database until the cache refills.'
+        : refill === false
+          ? `The database behind it is offline, so expired keys cannot be read again. Hits are still served, but every miss and every write fails. Keys live ${ttlText}, so after that every read fails too.`
+        : h < CACHE_HIT - 0.005
+          ? 'The cache started empty, so most reads miss and the database takes the extra load (a cache stampede). Misses refill it and the hit rate climbs back.'
+        : refill === undefined
+          ? 'Nothing is behind this cache, so it is the only copy of this data. If it goes offline, these reads fail.'
+          : `${Math.round(CACHE_HIT * 100)}% of reads are answered from memory; misses go to the database and refill the cache. Keys live ${ttlText}: if the database goes down, the cache keeps answering until they expire.`,
+    };
+  }
+
   let queue: NodeInspectorView['queue'] = null;
   if (n.kind === 'queue') {
     const q = sim.queue[id];
     const depth = q?.depth ?? 0, growth = q?.growth ?? 0;
     const fill = depth > 0.5 ? Math.log10(1 + depth) / Math.log10(1 + QUEUE_MAX) : 0;
     const noConsumer = !!q && q.consumers === 0;
+    const mode = queueConfig(n).mode;
     queue = {
+      modes: opts<'pubsub' | 'work'>([['pubsub', 'Pub/Sub', 'every subscriber gets every message'], ['work', 'Work queue', 'each message to one worker']], mode, (v) => a.updateQueue(id, { mode: v })),
+      modeHint: mode === 'pubsub'
+        ? 'Like a Kafka topic: each connected worker is its own consumer group and reads every message at its own pace. A slow worker falls behind alone; it never slows the others or the producer.'
+        : 'Like SQS: workers compete for messages, so adding workers shares the load. Each message is handled once.',
+      subscribers: (q?.subscribers ?? []).map((s) => ({
+        key: s.edgeId, label: byId.get(s.nodeId)?.label ?? s.nodeId,
+        behind: s.lag > 0.5 || s.growth > 0.5 ? `${fmtCompact(s.lag)} behind${s.growth > 0.5 ? ` · +${fmtCompact(s.growth)}/s` : s.growth < -0.5 ? ` · catching up` : ''}` : 'keeping up',
+        rate: `${fmtCompact(s.outRate)} msg/s`, bad: s.growth > 0.5 || s.full,
+      })),
       waiting: `${fmtInt(depth)} messages`,
       fill: { pct: `${Math.round((depth / QUEUE_MAX) * 1000) / 10}% full`, width: Math.round(fill * 100), color: q?.full ? '#e5484d' : growth > 0.5 ? '#e09a2c' : growth < -0.5 ? '#3f9b6b' : '#4f86c9' },
       inRate: `${fmtCompact(q?.inRate ?? 0)} msg/s`,
@@ -295,7 +383,9 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
     autoscale,
     db,
     lb,
+    cache,
     queue,
+    perf,
     replicas: n.kind !== 'users' && !auto && n.kind !== 'db'
       ? { value: n.replicas, onDec: () => a.updateNode(id, { replicas: Math.max(1, n.replicas - 1) }), onInc: () => a.updateNode(id, { replicas: Math.min(20, n.replicas + 1) }) }
       : null,
@@ -303,7 +393,7 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
       incoming: `${fmtCompact(sim.inflow[id] ?? 0)} rps`,
       capacity: sim.cap[id] === Infinity ? '∞' : `${fmtCompact(sim.cap[id] ?? 0)} rps`,
       load: loadView(ld, n.down),
-      latency: k.async ? 'async' : `${Math.round(sim.nodeLatency[id] ?? k.lat * congestion(ld))} ms`,
+      latency: k.async ? 'async' : `${Math.round(sim.nodeLatency[id] ?? k.lat)} ms`,
       cost: fmtMoney(sim.nodeCost[id] ?? 0),
     },
     connections,
@@ -313,9 +403,10 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
   };
 }
 
-function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: EditorActions): EdgeInspectorView {
+export function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: EditorActions): EdgeInspectorView {
   const from = sim.byId.get(e.from)!, to = sim.byId.get(e.to)!;
-  const sumW = doc.edges.filter((x) => x.from === e.from && sim.byId.has(x.to)).reduce((s, x) => s + (x.weight || 1), 0) || 1;
+  // fan-out connections (calls per request) take no part in the weighted split
+  const sumW = doc.edges.filter((x) => x.from === e.from && sim.byId.has(x.to) && !((x.calls ?? 0) > 0)).reduce((s, x) => s + (x.weight || 1), 0) || 1;
   const w = e.weight || 1;
   const lbAlgo = from.kind === 'lb' ? lbConfig(from).algo : null;
   const lbTotal = lbAlgo ? doc.edges.filter((x) => x.from === e.from).reduce((s, x) => s + (sim.edgeRps[x.id] ?? 0), 0) : 0;
@@ -339,10 +430,27 @@ function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: EditorAction
     ops: opts<EdgeOp>([['read', 'Reads'], ['write', 'Writes'], ['both', 'Both']], e.op, (v) => a.updateEdge(e.id, { op: v })),
     route: from.kind === 'gateway' ? { value: e.route, onChange: (v) => a.updateEdge(e.id, { route: v }) } : null,
     weight: { value: w, onDec: () => a.updateEdge(e.id, { weight: Math.max(1, w - 1) }), onInc: () => a.updateEdge(e.id, { weight: Math.min(10, w + 1) }) },
-    weightNote: lbAlgo && lbAlgo !== 'wrr' ? `Weight is only used when ${from.label} runs Weighted round robin. Its algorithm decides the split.` : null,
+    weightNote: lbAlgo && lbAlgo !== 'wrr' ? `Weight is only used when ${from.label} runs Weighted round robin. Its algorithm decides the split.`
+      : (e.calls ?? 0) > 0 ? `Weight is ignored: every request makes ${e.calls} call${e.calls === 1 ? '' : 's'} here.` : null,
+    calls: from.kind === 'lb' || from.kind === 'queue' ? null
+      : opts<number>([[0, 'Split'], [1, '1×'], [2, '2×'], [3, '3×'], [5, '5×'], [10, '10×']], e.calls ?? 0, (v) => a.updateEdge(e.id, { calls: v || undefined })),
+    resilience: from.kind === 'lb' || from.kind === 'queue' ? null : (() => {
+      const amp = sim.retryAmp[e.id] ?? 1, open = !!sim.breakerOpen[e.id];
+      return {
+        retries: opts<number>(Array.from({ length: MAX_RETRIES + 1 }, (_, i) => [i, i === 0 ? 'None' : String(i)] as [number, string]), e.retries ?? 0, (v) => a.updateEdge(e.id, { retries: v || undefined })),
+        breaker: { on: !!e.breaker, onToggle: () => a.updateEdge(e.id, { breaker: e.breaker ? undefined : true }) },
+        state: open ? 'Breaker open · failing fast' : amp > 1.01 ? `Retries ×${amp.toFixed(1)} load` : 'Calm',
+        bad: open || amp > 1.2,
+        hint: open
+          ? `${to.label} kept failing, so calls stop for a few seconds and fail instantly instead of waiting for a timeout. That gives it room to recover; then calls are tried again.`
+          : amp > 1.01
+            ? `${to.label} is dropping requests, so every failed call is sent again. That multiplies its load by ${amp.toFixed(1)}×, which can keep it down (a retry storm). Add a circuit breaker or use fewer retries.`
+            : 'Retries hide short blips (a request fails only if every attempt fails) but multiply load when the target is overloaded. A circuit breaker stops calling a failing service and fails fast.',
+      };
+    })(),
     share: lbAlgo
       ? `${Math.round(((sim.edgeRps[e.id] ?? 0) / (lbTotal || 1)) * 100)}% of ${from.label}`
-      : `${Math.round((w / sumW) * 100)}% of ${from.label}`,
+      : (e.calls ?? 0) > 0 ? `${e.calls}× every request` : `${Math.round((w / sumW) * 100)}% of ${from.label}`,
     rps: `${fmtCompact(sim.edgeRps[e.id] ?? 0)} rps`,
     onSlowPath: e.mode === 'async' ? 'No (async)' : sim.onSlowPath[e.id] ? 'Yes, slowest path' : 'No',
     onReverse: () => a.reverseEdge(e.id),
@@ -393,7 +501,11 @@ export function useInspector(): InspectorView | null {
         group: {
           label: g.label, onRename: (v) => a.updateGroup(g.id, { label: v }),
           collapsed: !!g.collapsed,
-          contents: (() => { const m = groupMembers(doc, g); return `${m.nodes.length} components · ${m.notes.length} notes${m.groups.length ? ` · ${m.groups.length} groups` : ''}`; })(),
+          contents: (() => {
+            const m = groupMembers(doc, g);
+            const pl = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+            return `${pl(m.nodes.length, 'component')} · ${pl(m.notes.length, 'note')}${m.groups.length ? ` · ${pl(m.groups.length, 'group')}` : ''}`;
+          })(),
           onToggleCollapse: () => a.toggleGroupCollapsed(g.id),
           colors: (Object.keys(GROUP_COLORS) as (keyof typeof GROUP_COLORS)[]).map((c) => ({
             key: c, name: GROUP_COLORS[c].name, swatch: GROUP_COLORS[c].swatch, active: g.color === c, onSelect: () => a.setGroupColor(g.id, c),

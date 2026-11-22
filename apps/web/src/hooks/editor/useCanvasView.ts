@@ -19,9 +19,13 @@ export function useCanvasView(): CanvasView | null {
   const rewire = useEditorStore((s) => s.ui.rewire);
   const multi = useEditorStore((s) => s.ui.multi);
   const marquee = useEditorStore((s) => s.ui.marquee);
+  const hover = useEditorStore((s) => s.ui.hover);
+  const hoverEdge = useEditorStore((s) => s.ui.hoverEdge);
+  const journeyPlay = useEditorStore((s) => s.ui.journeyPlay);
+  const view = useEditorStore((s) => s.ui.view);
 
   return useMemo(() => {
     if (!doc || !sim) return null;
-    return buildCanvasView(doc, sim, { sel, pending, tool, recording, flowPlay, running, drain, isLesson: !!doc.lesson, rewire, multi, marquee });
-  }, [doc, sim, sel, pending, tool, recording, flowPlay, running, drain, rewire, multi, marquee]);
+    return buildCanvasView(doc, sim, { sel, pending, tool, recording, flowPlay, running, drain, isLesson: !!doc.lesson, rewire, multi, marquee, hover, hoverEdge, journeyPlay, view });
+  }, [doc, sim, sel, pending, tool, recording, flowPlay, running, drain, rewire, multi, marquee, hover, hoverEdge, journeyPlay, view]);
 }
