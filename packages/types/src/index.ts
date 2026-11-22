@@ -35,6 +35,8 @@ export interface DbConfig {
   partition: PartitionStrategy;
   partKey: string;
   parts: number;
+  /** max client connections per database server; 0 = the technology's default (Postgres 100, MySQL 151) */
+  maxConn: number;
 }
 
 /**
@@ -47,6 +49,13 @@ export interface LbConfig {
   algo: LbAlgorithm;
   /** hash only: points per backend on the hash ring (more = more even spread) */
   vnodes: number;
+}
+
+export interface Measured {
+  /** requests per second one instance handled (at the node's current size) */
+  rps?: number;
+  /** time one request takes when the server is not busy, ms */
+  ms?: number;
 }
 
 export interface CacheConfig {
@@ -69,6 +78,8 @@ export interface DesignNode {
   dbc?: Partial<DbConfig>;
   /** load balancer settings (kind 'lb' only) */
   lbc?: Partial<LbConfig>;
+  /** numbers measured in a real load test; they replace the built-in estimates */
+  measured?: Measured;
   /** cache settings (kind 'cache' only) */
   cachec?: Partial<CacheConfig>;
 }
@@ -86,6 +97,15 @@ export interface DesignEdge {
   op: EdgeOp;
   weight: number;
   route: string;
+  /**
+   * How many calls each incoming request makes over this connection (fan-out). Unset = the
+   * caller's traffic is split across its connections by weight instead.
+   */
+  calls?: number;
+  /** times a failed call is retried (0–3); retries add load to a struggling server */
+  retries?: number;
+  /** circuit breaker: stop calling a failing server for a while and fail fast instead */
+  breaker?: boolean;
 }
 
 export type GroupColor = 'blue' | 'green' | 'orange' | 'gray';

@@ -53,6 +53,20 @@ group boxes never cover unrelated components).
 }
 ```
 
+Realism fields (all optional):
+
+| Field | Where | Meaning |
+|---|---|---|
+| `tech` | component | Known technologies change capacity and latency (Go ×1.6, Python ×0.55, Postgres caps connections at 100…) |
+| `measured: { requestsPerSecond, latencyMs }` | component | Numbers from a real load test; they replace the estimates |
+| `database.maxConnections` | db | Client connections per server (10000 ≈ a pooler like PgBouncer) |
+| `cache.ttlSeconds` | cache | How long keys live if the database behind it goes down |
+| `callsPerRequest` | connection | Fan-out: every request makes this many calls here (instead of splitting traffic) |
+| `retries`, `circuitBreaker` | connection | Failure handling; retries can cause retry storms |
+
+`simulate_design` reports mean / P95 / P99 latency, per-component load and latency, and issues such as
+connection limits, retry storms and open breakers. How the numbers are computed: [simulation.md](simulation.md).
+
 Kinds: `users, cdn, lb, gateway, app, worker, cache, db, store, queue, ext`. The full schema with a
 description of every field is in [`packages/spec/src/schema.ts`](../packages/spec/src/schema.ts).
 Mistakes come back as readable errors (`No component named "Feed Servce". Did you mean "Feed Service"?`)

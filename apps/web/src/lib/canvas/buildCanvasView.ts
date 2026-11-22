@@ -347,9 +347,14 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
           }
           return lv;
         }
-        let pk = ui.running ? packets(rpsI, e.mode === 'async', failRI, key) : [];
+        let pk = ui.running && !sim.breakerOpen[e.id] ? packets(rpsI, e.mode === 'async', failRI, key) : [];
         if (intoHash) pk = pk.map((x, j) => ({ ...x, tone: j % TONES }));
-        return line(key, p, q, r * scale, pk, retract);
+        const lv = line(key, p, q, r * scale, pk, retract);
+        // what this connection is doing, when it matters: breaker open > retry storm > fan-out
+        const amp = sim.retryAmp[e.id] ?? 1;
+        const tagText = i > 0 ? null : sim.breakerOpen[e.id] ? 'breaker open' : amp > 1.05 ? `retries ×${amp.toFixed(1)}` : (e.calls ?? 0) > 1 ? `${e.calls}× per request` : null;
+        if (tagText) lv.tag = { text: tagText, x: Math.round(p.x + (q.x - p.x) * 0.68), y: Math.round(p.y + (q.y - p.y) * 0.68), hot: !!sim.breakerOpen[e.id] || amp > 1.05 };
+        return lv;
       }),
       async: e.mode === 'async',
       selected: isSel || inMulti,
@@ -474,6 +479,7 @@ function buildNode(
   if (n.down) warn = n.kind !== 'cache' ? 'node offline' : sim.cacheBypass[n.id] ? 'offline · reads fall through to DB' : 'offline · reads fail (no DB behind it)';
   else if (n.kind === 'cache' && sim.cacheRefill[n.id] === false) warn = (sim.cacheHit[n.id] ?? 0) > 0 ? `DB offline · keys expiring · ${Math.round((sim.cacheHit[n.id] ?? 0) * 100)}% hits` : 'DB offline · cache empty';
   else if (n.kind === 'cache' && (sim.cacheHit[n.id] ?? CACHE_HIT) < CACHE_HIT - 0.005) warn = `warming up · ${Math.round((sim.cacheHit[n.id] ?? 0) * 100)}% hits`;
+  else if (n.kind === 'db' && sim.dbConns[n.id] && sim.dbConns[n.id].need > sim.dbConns[n.id].limit) warn = `too many connections · ${fmtInt(sim.dbConns[n.id].need)}/${fmtInt(sim.dbConns[n.id].limit)}`;
   else if (sim.needsLB[n.id]) warn = 'needs a load balancer';
   else if (lp.hot) warn = n.kind === 'ext' ? 'rate limited' : auto && reps >= n.autoscale.max ? 'hit max replicas' : k.perCpu && sizeIdx === 4 && reps === 1 ? 'largest machine you can buy' : 'over capacity';
 

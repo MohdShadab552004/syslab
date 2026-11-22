@@ -13,7 +13,7 @@ export function uid(prefix: string): string {
 export const DEFAULT_AUTOSCALE: AutoscaleConfig = { on: false, mode: 'h', min: 2, max: 10, minSize: 1, maxSize: 4, target: 60 };
 
 export const DEFAULT_DB: DbConfig = {
-  replicas: 0, sync: false, shards: 1, strategy: 'hash', shardKey: 'user_id', partition: 'none', partKey: 'created_at', parts: 12,
+  replicas: 0, sync: false, shards: 1, strategy: 'hash', shardKey: 'user_id', partition: 'none', partKey: 'created_at', parts: 12, maxConn: 0,
 };
 
 export const DEFAULT_LB: LbConfig = { algo: 'rr', vnodes: 10 };

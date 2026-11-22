@@ -138,6 +138,14 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
             )}
             <Hint>{v.db.partitionHint}</Hint>
           </Card>
+          {v.db.conns && (
+            <Card>
+              <div className="row"><SectionLabel>Client connections</SectionLabel><span className={v.db.conns.bad ? 'v bad' : 'v'}>{v.db.conns.text}</span></div>
+              <div className="flab">Max connections per server</div>
+              <OptionGroup options={v.db.conns.options} />
+              <Hint>{v.db.conns.hint}</Hint>
+            </Card>
+          )}
         </>
       )}
 
@@ -150,6 +158,20 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
           {v.db && <><Row label="Write load (primary)" value={v.db.writeLoad} /><Row label="Read load (each reader)" value={v.db.readLoad} /></>}
           <Row label="Added latency" value={v.stats.latency} />
           <Row label="Cost / month" value={v.stats.cost} />
+        </Card>
+      )}
+
+      {v.perf && (
+        <Card>
+          <SectionLabel>Performance</SectionLabel>
+          <Row label="Workers × time each" value={v.perf.workers} />
+          <Row label="Waiting in line" value={v.perf.wait} />
+          <div className="segs">
+            <TextField small label="Measured req/s per instance" inputMode="numeric" value={v.perf.measured.rps} onValue={v.perf.measured.onRps} placeholder={v.perf.measured.estRps} />
+            <TextField small label="Measured ms per request" inputMode="decimal" value={v.perf.measured.ms} onValue={v.perf.measured.onMs} placeholder={v.perf.measured.estMs} />
+          </div>
+          <Hint>{v.perf.note}</Hint>
+          {v.perf.measured.onClear && <Button size="sm" onClick={v.perf.measured.onClear}>Use estimates</Button>}
         </Card>
       )}
 
