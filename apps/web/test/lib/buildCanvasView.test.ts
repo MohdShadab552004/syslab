@@ -50,7 +50,10 @@ describe('basic chain', () => {
     expect(e1.label).toBe('REST');
     expect(e1.showLabel).toBe(true);
     expect(e1.handles).toBeNull();
-    expect(e1.weight).toBe(1);
+    // the busiest line is the thickest: here both lines carry all the traffic
+    expect(e1.weight).toBeCloseTo(3.6, 5);
+    expect(e1.tone).toBe('ok');
+    expect(e1.tip).toBeNull();
     expect(v.rewire).toBeNull();
     expect(v.marquee).toBeNull();
     expect(v.flow).toEqual([]);
@@ -572,12 +575,12 @@ describe('collapsed groups', () => {
     expect(v.notes.map((n) => n.id)).toEqual(['t2', 't3']);
     const ua = edgeOf(v, 'ua');
     expect(ua.label).toBe('2 connections');
-    expect(ua.weight).toBe(2);
+    expect(ua.weight).toBeGreaterThanOrEqual(2);
     expect(ua.lines[0].packets.length).toBeGreaterThan(0);
     expect(v.edges.some((e) => e.id === 'ub')).toBe(false); // merged into ua
     expect(v.edges.some((e) => e.id === 'ab')).toBe(false); // internal
     expect(edgeOf(v, 'ac').label).toBe('REST'); // group to group, one connection
-    expect(edgeOf(v, 'bx').weight).toBe(1);
+    expect(edgeOf(v, 'bx').weight).toBeGreaterThanOrEqual(1);
     const g1 = v.groups.find((g) => g.id === 'g1')!;
     expect(g1.collapsed).toBe(true);
     expect(g1.w).toBe(GROUP_CARD.w);

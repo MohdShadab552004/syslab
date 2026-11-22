@@ -28,6 +28,8 @@ export const MetricsBar = memo(function MetricsBar({ metrics }: { metrics: Metri
 
 export interface ViewMenuProps {
   toggles: { key: string; label: string; hint: string; on: boolean; onToggle: () => void }[];
+  /** line style: curves, right angles or straight */
+  lines: Option[];
   actions: { key: string; label: string; hint: string; onSelect: () => void; disabled: boolean }[];
 }
 
@@ -71,7 +73,7 @@ function useDismiss(open: boolean, setOpen: (v: boolean) => void, ref: React.Ref
 }
 
 /** Readability options: hide shared-infra lines, elbow lines, note icons, layout and groups. */
-function ViewMenu({ toggles, actions }: ViewMenuProps) {
+function ViewMenu({ toggles, lines, actions }: ViewMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(open, setOpen, ref);
@@ -83,6 +85,12 @@ function ViewMenu({ toggles, actions }: ViewMenuProps) {
       </Button>
       {open && (
         <div className="spikelist viewlist" role="menu" aria-label="View options">
+          <div className="vlabel">Lines</div>
+          <div className="vseg" role="radiogroup" aria-label="Line style">
+            {lines.map((o) => (
+              <button key={o.key} type="button" role="radio" aria-checked={o.active} className={cx('vsegopt', o.active && 'on')} onClick={o.onSelect}>{o.label}</button>
+            ))}
+          </div>
           {toggles.map((t) => (
             <button key={t.key} type="button" role="menuitemcheckbox" aria-checked={t.on} className={cx('spikeopt', 'vopt', t.on && 'on')} title={t.hint} onClick={t.onToggle}>
               <span className={cx('vcheck', t.on && 'on')} aria-hidden="true">{t.on ? '✓' : ''}</span>{t.label}

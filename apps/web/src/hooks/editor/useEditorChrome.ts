@@ -44,9 +44,11 @@ export function useEditorChrome() {
       view: {
         toggles: [
           { key: 'edges', label: 'Hide lines to shared services', hint: 'Redis, databases, queues used by many components show as chips; hover or select to see the lines', on: view.edges === 'smart', onToggle: () => a.setView({ edges: view.edges === 'smart' ? 'all' : 'smart' }) },
-          { key: 'route', label: 'Right-angle lines', hint: 'Elbow lines cross less than straight ones', on: view.route === 'elbow', onToggle: () => a.setView({ route: view.route === 'elbow' ? 'straight' : 'elbow' }) },
           { key: 'notes', label: 'Notes as icons', hint: 'Sticky notes open when you click them', on: view.notes === 'icons', onToggle: () => a.setView({ notes: view.notes === 'icons' ? 'open' : 'icons' }) },
         ],
+        lines: (['curve', 'elbow', 'straight'] as const).map((r) => ({
+          key: r, label: { curve: 'Curves', elbow: 'Right angles', straight: 'Straight' }[r], active: view.route === r, onSelect: () => a.setView({ route: r }),
+        })),
         actions: [
           { key: 'layout', label: 'Auto-layout', hint: 'Arrange left to right in layers   L', onSelect: a.autoLayout, disabled: !doc?.nodes.length },
           { key: 'collapse', label: 'Collapse all groups', hint: 'Each group becomes one card; lines between groups merge', onSelect: () => a.setAllGroupsCollapsed(true), disabled: !doc?.groups.some((g) => !g.collapsed) },

@@ -20,10 +20,11 @@ export function useCanvasView(): CanvasView | null {
   const multi = useEditorStore((s) => s.ui.multi);
   const marquee = useEditorStore((s) => s.ui.marquee);
   const hover = useEditorStore((s) => s.ui.hover);
+  const hoverEdge = useEditorStore((s) => s.ui.hoverEdge);
   const view = useEditorStore((s) => s.ui.view);
 
   return useMemo(() => {
     if (!doc || !sim) return null;
-    return buildCanvasView(doc, sim, { sel, pending, tool, recording, flowPlay, running, drain, isLesson: !!doc.lesson, rewire, multi, marquee, hover, view });
-  }, [doc, sim, sel, pending, tool, recording, flowPlay, running, drain, rewire, multi, marquee, hover, view]);
+    return buildCanvasView(doc, sim, { sel, pending, tool, recording, flowPlay, running, drain, isLesson: !!doc.lesson, rewire, multi, marquee, hover, hoverEdge, view });
+  }, [doc, sim, sel, pending, tool, recording, flowPlay, running, drain, rewire, multi, marquee, hover, hoverEdge, view]);
 }

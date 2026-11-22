@@ -58,7 +58,7 @@ export const Canvas = memo(function Canvas({ view, handlers: h, camera: c, onNot
         style={{ transform: `translate(${x}px, ${y}px) scale(${z})` }}
       >
         {view.groups.map((gr) => <GroupBox key={gr.id} v={gr} onMove={h.onGroupPointerDown ?? noop} onResize={h.onGroupResizeDown ?? noop} onToggle={h.onGroupToggle} />)}
-        <EdgeLayer edges={view.edges} replication={view.replication} />
+        <EdgeLayer edges={view.edges} replication={view.replication} onHover={h.onEdgeHover} onPick={h.onEdgePick} />
         <FlowLayer segments={view.flow} />
         <EdgeLabels edges={view.edges} onPick={h.onEdgePick ?? noop} />
         <LineTags edges={view.edges} />

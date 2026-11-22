@@ -1,4 +1,4 @@
-import type { DesignDoc, DesignNode, NodeKind, Shape } from '@syslab/types';
+import type { DesignDoc, DesignEdge, DesignNode, NodeKind, Shape } from '@syslab/types';
 import {
   CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
@@ -7,7 +7,7 @@ import {
 import type { FlowPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
 import { GROUP_CARD, cardCenter, cardLeft, collapsedOwners, groupMembers } from './groups';
-import { DEFAULT_VIEW, elbowRoute, findHubs, focusSet, pointAlong, type ViewPrefs } from './readability';
+import { DEFAULT_VIEW, curveRoute, elbowRoute, findHubs, focusSet, pointAlong, portOffsets, type Ends, type Route, type ViewPrefs } from './readability';
 
 /* ------------------------------------------------------------------ */
 /*  View models: plain data the canvas components render, no logic.   */
@@ -96,7 +96,7 @@ export interface LineView {
   packets: PacketView[];
   retract: boolean;
   tag?: LineTagView;
-  /** elbow-routed line: SVG path data and arrowhead (x / y / len / ang are then unused) */
+  /** curved or elbow line: SVG path data and arrowhead (x / y / len / ang are then unused) */
   path?: { d: string; arrow: { x: number; y: number; ang: number } };
 }
 
@@ -110,8 +110,12 @@ export interface EdgeView {
   hl: boolean;
   /** carries only reads: drawn lighter */
   read: boolean;
-  /** merged connections into / out of a collapsed group: drawn thicker */
+  /** stroke weight: grows with traffic (and with merged group connections) */
   weight: number;
+  /** health of the target: busy (70%+) or failing lines are coloured */
+  tone: 'ok' | 'busy' | 'fail';
+  /** hovered: show a tooltip with the numbers */
+  tip: string | null;
   label: string;
   showLabel: boolean;
   labelX: number;
@@ -165,6 +169,8 @@ export interface CanvasUi {
   marquee?: Marquee | null;
   /** node under the pointer: its hidden lines show and its connections light up */
   hover?: string | null;
+  /** connection under the pointer: it lights up, the others fade */
+  hoverEdge?: string | null;
   view?: ViewPrefs;
 }
 
@@ -217,20 +223,27 @@ function lbPackets(rps: number, share: number, idx: number, n: number, algo: str
   }));
 }
 
-function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false, elbow = false): LineView {
+type RouteMode = ViewPrefs['route'];
+
+/** The routed path of a line, or null for a straight one. */
+function routeOf(mode: RouteMode, a: Point, b: Point, ends: Ends): Route | null {
+  if (mode === 'elbow') return elbowRoute(a, b, ends.toR);
+  if (mode === 'curve') return curveRoute(a, b, ends);
+  return null;
+}
+
+function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false, mode: RouteMode = 'straight', ends?: Ends): LineView {
   const s = segment(a, b);
   const lv: LineView = { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
-  if (elbow && !retract) {
-    const r = elbowRoute(a, b, targetRadius + 2);
-    lv.path = { d: r.d, arrow: r.arrow };
-  }
+  const r = retract ? null : routeOf(mode, a, b, ends ?? { fromR: 0, toR: targetRadius + 2 });
+  if (r) lv.path = { d: r.d, arrow: r.arrow };
   return lv;
 }
 
-/** Point a fraction t along a line, following its elbow route when it has one. */
-function along(a: Point, b: Point, t: number, elbow: boolean, targetRadius = 0): Point {
-  if (!elbow) return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-  return pointAlong(elbowRoute(a, b, targetRadius).pts, t);
+/** Point a fraction t along a line, following its route when it has one. */
+function along(a: Point, b: Point, t: number, mode: RouteMode, ends: Ends = { fromR: 0, toR: 0 }): Point {
+  const r = routeOf(mode, a, b, ends);
+  return r ? pointAlong(r.pts, t) : { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 /** Does a flow step from a straight to b? */
@@ -334,13 +347,39 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
   /** does a merged group line touch a focused node (through the collapsed group)? */
   const mergedTouches = (mk: string, ids: Set<string>) => doc.edges.some((x) => mergeKey(x) === mk && (ids.has(x.from) || ids.has(x.to)));
   const CARD_R = Math.min(GROUP_CARD.w, GROUP_CARD.h) / 2;
+
+  // which lines get drawn (hub lines hidden, one line per merged group pair)
+  const drawn: DesignEdge[] = [];
   for (const e of doc.edges) {
-    const a = sim.byId.get(e.from), b = sim.byId.get(e.to);
-    if (!a || !b) continue;
+    if (!sim.byId.get(e.from) || !sim.byId.get(e.to)) continue;
     const mk = mergeKey(e);
-    if (mk === 'internal') continue;
-    if (!mk && hiddenEdge(e)) continue;
+    if (mk === 'internal' || (!mk && hiddenEdge(e))) continue;
     if (mk) { if (drawnMerged.has(mk)) continue; drawnMerged.add(mk); }
+    drawn.push(e);
+  }
+  // each line gets its own port on both ends, ordered by where the other end sits (fewer crossings)
+  const endKey = (id: string) => { const g = ownerOf('node', id); return g ? `g:${g}` : id; };
+  const posOf = (id: string) => positions.get(id)![0];
+  const ports = (side: 'from' | 'to') => {
+    const other = side === 'from' ? 'to' : 'from';
+    const bySide = new Map<string, DesignEdge[]>();
+    for (const e of drawn) { const k = endKey(e[side]); bySide.set(k, [...(bySide.get(k) ?? []), e]); }
+    const out = new Map<string, number>();
+    for (const list of bySide.values()) {
+      list.sort((x, y) => posOf(x[other]).y - posOf(y[other]).y || posOf(x[other]).x - posOf(y[other]).x);
+      const offs = portOffsets(list.length);
+      list.forEach((e, i) => out.set(e.id, offs[i]));
+    }
+    return out;
+  };
+  const outPort = ports('from'), inPort = ports('to');
+  const rpsOf = (e: DesignEdge) => { const mk = mergeKey(e); return mk ? merged.get(mk)!.rps : sim.edgeRps[e.id] ?? 0; };
+  const maxRps = Math.max(0, ...drawn.map(rpsOf));
+  const hoverE = ui.hoverEdge && drawn.some((e) => e.id === ui.hoverEdge) ? ui.hoverEdge : null;
+
+  for (const e of drawn) {
+    const a = sim.byId.get(e.from)!, b = sim.byId.get(e.to)!;
+    const mk = mergeKey(e);
     const intoCard = !!ownerOf('node', b.id);
     const A = positions.get(a.id)!, B = positions.get(b.id)!;
     const kb = KINDS[b.kind];
@@ -381,12 +420,23 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     const rA = ownerOf('node', a.id) ? CARD_R : (Math.min(ka.w, ka.h) / 2 - 4) * nodeScale(a, sim);
     const seg0 = segment(A[0], B[0]);
     const ux = seg0.len > 0 ? (B[0].x - A[0].x) / seg0.len : 0, uy = seg0.len > 0 ? (B[0].y - A[0].y) / seg0.len : 0;
+    const routed = view.route === 'curve' ? curveRoute(A[0], B[0], { fromR: rA, toR: r + 2, fromPort: outPort.get(e.id) ?? 0, toPort: inPort.get(e.id) ?? 0 }) : null;
     const handles = isSel && !agg && !ui.readOnly && !playing && !rw
-      ? { from: { x: Math.round(A[0].x + ux * rA), y: Math.round(A[0].y + uy * rA) }, to: { x: Math.round(B[0].x - ux * (r + 2)), y: Math.round(B[0].y - uy * (r + 2)) } }
+      ? routed
+        ? { from: { x: Math.round(routed.pts[0].x), y: Math.round(routed.pts[0].y) }, to: { x: Math.round(routed.arrow.x), y: Math.round(routed.arrow.y) } }
+        : { from: { x: Math.round(A[0].x + ux * rA), y: Math.round(A[0].y + uy * rA) }, to: { x: Math.round(B[0].x - ux * (r + 2)), y: Math.round(B[0].y - uy * (r + 2)) } }
       : null;
     const lbShare = a.kind === 'lb' ? lbEdgeShare(doc, sim, a.id, e.id) : null;
-    const elbow = view.route === 'elbow';
-    const mid = along(A[0], B[0], 0.5, elbow);
+    const mode = view.route;
+    const endsOf = (scale: number): Ends => ({ fromR: rA, toR: r * scale + 2, fromPort: outPort.get(e.id) ?? 0, toPort: inPort.get(e.id) ?? 0 });
+    const mid = along(A[0], B[0], 0.5, mode, endsOf(1));
+    const tone: EdgeView['tone'] = fail ? 'fail' : (sim.load[b.id] ?? 0) >= 0.7 ? 'busy' : 'ok';
+    const trafficW = maxRps > 0 ? 1 + 2.6 * Math.sqrt(rps / maxRps) : 1;
+    const isHover = hoverE === e.id;
+    const toLabel = agg && agg.count > 1 ? `${agg.count} connections` : `${a.label} → ${b.label}`;
+    const tip = isHover
+      ? [toLabel, `${fmtCompact(rps)} rps`, agg ? '' : `${Math.round(sim.nodeLatency[b.id] ?? 0)} ms`, tone === 'fail' ? 'failing' : tone === 'busy' ? 'busy' : ''].filter(Boolean).join(' · ')
+      : null;
 
     edges.push({
       id: e.id,
@@ -403,7 +453,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
           const lineRps = mine.reduce((t, x) => t + x.rps, 0);
           const idx = Math.max(0, lbList.findIndex((x) => x === mine[0]));
           const pk = ui.running ? lbPackets(lineRps, share, idx, lbList.length, lbAlgo, lbDur, failRI, key) : [];
-          const lv = line(key, p, q, r * scale, pk, retract, elbow);
+          const lv = line(key, p, q, r * scale, pk, retract, mode, endsOf(scale));
           if (lbList.length > 1 && lineRps >= MIN_VISIBLE_RPS) {
             const pct = `${Math.round(share * 100)}%`;
             const lat = (sim.nodeLatency[b.id] ?? KINDS[b.kind].lat) / 1000;
@@ -411,27 +461,29 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
               : lbAlgo === 'wrr' ? `w${e.weight || 1} · ${pct}`
               : lbAlgo === 'lc' ? `${fmtCompact(lineRps * lat)} conns · ${pct}`
               : `${pct} of users`;
-            const at = along(p, q, 0.82, elbow, r * scale);
+            const at = along(p, q, 0.82, mode, endsOf(scale));
             lv.tag = { text, x: Math.round(at.x), y: Math.round(at.y), hot: failI && !b.down };
           }
           return lv;
         }
         let pk = ui.running && !sim.breakerOpen[e.id] ? packets(rpsI, e.mode === 'async', failRI, key) : [];
         if (intoHash) pk = pk.map((x, j) => ({ ...x, tone: j % TONES }));
-        const lv = line(key, p, q, r * scale, pk, retract, elbow);
+        const lv = line(key, p, q, r * scale, pk, retract, mode, endsOf(scale));
         // what this connection is doing, when it matters: breaker open > retry storm > fan-out
         const amp = sim.retryAmp[e.id] ?? 1;
         const tagText = i > 0 ? null : sim.breakerOpen[e.id] ? 'breaker open' : amp > 1.05 ? `retries ×${amp.toFixed(1)}` : (e.calls ?? 0) > 1 ? `${e.calls}× per request` : null;
-        const at = along(p, q, 0.68, elbow, r * scale);
+        const at = along(p, q, 0.68, mode, endsOf(scale));
         if (tagText) lv.tag = { text: tagText, x: Math.round(at.x), y: Math.round(at.y), hot: !!sim.breakerOpen[e.id] || amp > 1.05 };
         return lv;
       }),
       async: e.mode === 'async',
       selected: isSel || inMulti,
-      dim: playing || rw?.edgeId === e.id || (focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes))),
-      hl: !!hover?.edges.has(e.id) || (focused && focus.edges.has(e.id)),
+      dim: playing || rw?.edgeId === e.id || (!!hoverE && !isHover) || (!hoverE && focused && !focus.edges.has(e.id) && !(mk && mergedTouches(mk, focus.nodes))),
+      hl: isHover || !!hover?.edges.has(e.id) || (focused && focus.edges.has(e.id)),
       read: e.op === 'read',
-      weight: agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1,
+      weight: Math.round(Math.max(agg ? Math.min(4, 1 + Math.log2(agg.count)) : 1, trafficW) * 100) / 100,
+      tone,
+      tip,
       label: agg && agg.count > 1
         ? `${agg.count} connections`
         : (e.route ? e.route + ' · ' : '') + e.proto + (e.mode === 'async' ? ' · async' : '') + (e.op !== 'both' ? ' · ' + e.op : '') + (lbShare != null ? ` · ${lbShare}%` : ''),
@@ -478,7 +530,7 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       if (!a || !b) continue;
       const idx = flowPlay?.idx ?? -1;
       const state = !flowPlay ? 'rec' : i < idx ? 'past' : i === idx ? 'cur' : 'next';
-      const pts = view.route === 'elbow' ? elbowRoute(a, b, 0).pts : [a, b];
+      const pts = view.route === 'elbow' ? elbowRoute(a, b, 0).pts : view.route === 'curve' ? curveRoute(a, b, { fromR: 0, toR: 0 }).pts : [a, b];
       for (let j = 0; j < pts.length - 1; j++) {
         if (Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].y - pts[j].y) < 0.5) continue;
         const s = segment(pts[j], pts[j + 1]);

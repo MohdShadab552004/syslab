@@ -64,6 +64,11 @@
 .vcheck.on { background: #303030; border-color: #303030; }
 .vopt[role=menuitem] .vcheck { border: 0; }
 .vsep { height: 1px; margin: 3px 4px; background: var(--line); }
+.vlabel { font: 700 10px var(--font); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3, #8a8d93); padding: 6px 10px 2px; }
+.vseg { display: flex; gap: 3px; padding: 2px 6px 6px; }
+.vsegopt { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: transparent; font: 700 11px var(--font); color: var(--ink); cursor: pointer; }
+.vsegopt:hover { background: var(--surface-2); }
+.vsegopt.on { background: #303030; border-color: #303030; color: #fff; }
 .tlabel { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--muted); margin: 0 2px 0 4px; }
 .sep { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
 .connhint { position: absolute; right: 16px; top: 72px; z-index: 30; font-size: 11px; font-weight: 600; color: #7a4a12; background: #fff4e6; border: 1px solid #f0c48f; border-radius: 9px; padding: 6px 10px; }
@@ -92,8 +97,12 @@
   transition: opacity .2s, left .55s var(--ease), top .55s var(--ease), width .55s var(--ease), transform .55s var(--ease); animation: drawLine .6s cubic-bezier(.3,.7,.2,1); }
 .edge.async { border-top-style: dashed; }
 .edge.read { border-top-color: var(--edge-read, #9aa0a8); }
-.edge.hl { border-top-width: 3px; z-index: 2; }
-.edge.agg { border-top-width: 4px; }
+.edge { border-top-width: calc(1.6px * var(--ew, 1)); }
+.edge.hl { border-top-width: calc(1.6px * var(--ew, 1) + 1.4px); z-index: 2; }
+.edge.busy { border-top-color: var(--edge-busy, #e09a2c); }
+.edge.busy .arrow { border-left-color: var(--edge-busy, #e09a2c); }
+.edge.fail { border-top-color: var(--danger); }
+.edge.fail .arrow { border-left-color: var(--danger); }
 
 /* elbow (right-angle) lines: one SVG layer, packets follow the path */
 .opaths { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 1; }
@@ -102,7 +111,17 @@
 .opath.async path { stroke-dasharray: 6 5; }
 .opath.read path { stroke: var(--edge-read, #9aa0a8); }
 .opath.read polygon { fill: var(--edge-read, #9aa0a8); }
-.opath.hl path { stroke-width: calc(2.8px * var(--ew, 1)); }
+.opath.hl path { stroke-width: calc(1.6px * var(--ew, 1) + 1.6px); }
+.opath.busy path { stroke: var(--edge-busy, #e09a2c); }
+.opath.busy polygon { fill: var(--edge-busy, #e09a2c); }
+.opath.fail path { stroke: var(--danger); }
+.opath.fail polygon { fill: var(--danger); }
+.opath path.hit { stroke: transparent; stroke-width: 14px; fill: none; pointer-events: stroke; cursor: pointer; }
+.etip { position: absolute; z-index: 6; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; white-space: nowrap;
+  font: 700 10.5px var(--font); padding: 5px 9px; border-radius: 7px; background: #222831; color: #fff; box-shadow: 0 2px 0 #000; }
+.etip.busy { background: #8a5a12; }
+.etip.fail { background: #9d1f25; }
+.lod-far .etip { transform: translate(-50%, calc(-100% - 12px)) scale(var(--inv)); transform-origin: bottom center; }
 .opath.sel path { stroke: var(--accent); stroke-width: 2.8px; }
 .opath.sel polygon { fill: var(--accent); }
 .opath.dim { opacity: .12; }

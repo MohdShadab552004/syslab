@@ -31,6 +31,21 @@ describe('regressions', () => {
     expect(back.groups!.find((g) => g.name === 'Inner')!.members).toEqual(['X']);
   });
 
+  test('the far sub-column drops half a row so lines pass between the near nodes', () => {
+    const names = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
+    const { doc } = buildDesign(spec({
+      components: [c('Users', 'users'), c('Gateway', 'gateway'), ...names.map((n) => c(n, 'app'))],
+      connections: [{ from: 'Users', to: 'Gateway' }, ...names.map((n) => ({ from: 'Gateway', to: n }))],
+    }));
+    const pos = names.map((n) => doc.nodes.find((x) => x.label === n)!);
+    const xs = [...new Set(pos.map((p) => p.x))].sort((a, b) => a - b);
+    expect(xs).toHaveLength(2);
+    const near = pos.filter((p) => p.x === xs[0]).map((p) => p.y).sort((a, b) => a - b);
+    const far = pos.filter((p) => p.x === xs[1]).map((p) => p.y).sort((a, b) => a - b);
+    const row = near[1] - near[0];
+    expect(Math.abs(far[0] - near[0] - row / 2)).toBeLessThanOrEqual(10);
+  });
+
   test('when a breaker rejects requests, the latency line says so', () => {
     const { doc } = buildDesign(spec({
       users: 30000,

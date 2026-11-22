@@ -166,9 +166,13 @@ export function layout(nodes: DesignNode[], edges: DesignEdge[], groups: string[
       const lo = Math.min(...used), hi = Math.max(...used);
       const bandTop = Math.max(famTop, ...skyline.slice(lo, hi + 1));
       const heightOf = (ids: string[]) => ids.reduce((s, id) => s + ext.get(id)!.top + ext.get(id)!.bottom, 0) + Math.max(0, ids.length - 1) * ROW_GAP;
-      const bandH = Math.max(0, ...stacks.flat().map(heightOf));
+      // every other sub-column drops half a row, so lines into the far sub-column pass between
+      // the nodes of the near one instead of behind them
+      const stagger = (ids: string[], sc: number) => (sc % 2 ? (ext.get(ids[0])!.top + ext.get(ids[0])!.bottom + ROW_GAP) / 2 : 0);
+      const bandH = Math.max(0, ...stacks.flatMap((parts) => parts.map((ids, sc) => heightOf(ids) + stagger(ids, sc))));
       stacks.forEach((parts, L) => parts.forEach((ids, sc) => {
-        let y = bandTop + (bandH - heightOf(ids)) / 2;
+        const colStagger = Math.max(0, ...parts.map((x, j) => stagger(x, j)));
+        let y = bandTop + (bandH - heightOf(ids) - colStagger) / 2 + stagger(ids, sc);
         for (const id of ids) {
           const e = ext.get(id)!, n = nodes.find((m) => m.id === id)!, k = KINDS[n.kind];
           const ax = colLeft[L] + sc * (nodeW[L] + SUB_GAP) + e.left, ay = y + e.top;
