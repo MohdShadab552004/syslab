@@ -306,3 +306,19 @@
 .pkt.t3 { background: #c9a7f0; }
 .pkt.t4 { background: #f09aa8; }
 .pkt.t5 { background: #8dd8d8; }
+
+/* journey of the selected component: numbered steps, playback bar */
+.node.tcur > .lift > .ring { display: block; border: 2.5px solid var(--accent); background: rgba(47,111,209,.07); animation: jpulse 1s ease-out infinite; }
+@keyframes jpulse { 0% { box-shadow: 0 0 0 0 rgba(47,111,209,.35); } 100% { box-shadow: 0 0 0 14px rgba(47,111,209,0); } }
+.opath.tcur path { stroke: var(--accent); stroke-width: 3.2px; }
+.opath.tcur polygon { fill: var(--accent); }
+.edge.tcur { border-top-color: var(--accent); border-top-width: 3.2px; }
+.edge.tcur .arrow { border-left-color: var(--accent); }
+.journeybar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 31; width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line), 0 8px 24px rgba(35,42,51,.10); }
+.journeybar .jtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.journeybar .jtitle { font: 800 12px var(--font); color: var(--ink); }
+.journeybar .jstep { font: 700 11px var(--font); color: var(--accent); white-space: nowrap; }
+.journeybar .jcap { font: 600 11.5px/1.45 var(--font); color: var(--ink-2); min-height: 17px; }
+.journeybar .jbtns { display: flex; gap: 6px; justify-content: flex-end; }
+@media (max-width: 760px) { .journeybar { bottom: 76px; } }

@@ -1,7 +1,8 @@
 import type {
-  AutoscaleConfig, CacheConfig, DbConfig, DesignDoc, DesignEdge, DesignNode, LbConfig, NodeKind, Requirements,
+  AutoscaleConfig, CacheConfig, DbConfig, QueueConfig, DesignDoc, DesignEdge, DesignNode, LbConfig, NodeKind, Requirements,
 } from '@syslab/types';
 import { TECHS } from './catalog';
+import { techProfile } from './techs';
 
 let counter = 0;
 /** Short unique id. Good enough for client-side ids inside one document. */
@@ -68,6 +69,11 @@ export function lbConfig(n: DesignNode): LbConfig {
 
 export function cacheConfig(n: DesignNode): CacheConfig {
   return { ...DEFAULT_CACHE, ...(n.cachec ?? {}) };
+}
+
+/** Queue settings with the technology's default delivery mode (Kafka: pub/sub, others: work queue). */
+export function queueConfig(n: DesignNode): QueueConfig {
+  return { mode: n.queuec?.mode ?? (techProfile(n).pubsub ? 'pubsub' : 'work') };
 }
 
 export function autoscale(n: DesignNode): AutoscaleConfig {

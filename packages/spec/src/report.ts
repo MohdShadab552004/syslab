@@ -18,7 +18,7 @@ export interface SimulationReport {
   /** problems that are not plain overload: connection limits, retry storms, open breakers */
   issues: string[];
   scaling: string[];
-  queues: { component: string; waitingMessages: number; changePerSecond: number }[];
+  queues: { component: string; mode: 'pubsub' | 'work'; waitingMessages: number; changePerSecond: number; subscribers: { component: string; behindMessages: number; changePerSecond: number }[] }[];
   loadBalancers: { component: string; algorithm: string; split: string }[];
   text: string;
 }
@@ -52,6 +52,8 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     loadPercent: n.down ? 0 : Math.round((sim.load[n.id] ?? 0) * 100), latencyMs: Math.round((sim.nodeLatency[n.id] ?? 0) * 10) / 10, offline: !!n.down,
   }));
   const queues = d.nodes.filter((n) => n.kind === 'queue' && sim.queue[n.id]).map((n) => ({
+    mode: sim.queue[n.id].mode,
+    subscribers: sim.queue[n.id].subscribers.map((s) => ({ component: name(s.nodeId), behindMessages: Math.round(s.lag), changePerSecond: Math.round(s.growth) })),
     component: n.label, waitingMessages: Math.round(sim.queue[n.id].depth), changePerSecond: Math.round(sim.queue[n.id].growth),
   }));
   const loadBalancers = d.nodes.filter((n) => n.kind === 'lb' && sim.lbBackends[n.id]?.length).map((n) => {
@@ -90,7 +92,14 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
       return [];
     }),
     ...(scaling.length ? [`Autoscaling during the first ${seconds}s: ${scaling.slice(-6).join('; ')}.`] : []),
-    ...queues.map((q) => `Queue ${q.component}: ${fmtCompact(q.waitingMessages)} waiting, ${q.changePerSecond > 0 ? `growing +${fmtCompact(q.changePerSecond)}/s` : q.changePerSecond < 0 ? `draining ${fmtCompact(-q.changePerSecond)}/s` : 'steady'}.`),
+    ...queues.map((q) => {
+      const trend = (v: number) => (v > 0 ? `growing +${fmtCompact(v)}/s` : v < 0 ? `draining ${fmtCompact(-v)}/s` : 'steady');
+      if (q.mode === 'pubsub') {
+        const behind = q.subscribers.filter((s) => s.behindMessages > 0 || s.changePerSecond > 0);
+        return `Queue ${q.component} (pub/sub, every subscriber gets every message): ${q.subscribers.length} subscriber${q.subscribers.length === 1 ? '' : 's'}${behind.length ? `; behind: ${behind.map((s) => `${s.component} ${fmtCompact(s.behindMessages)} (${trend(s.changePerSecond)})`).join(', ')}` : ', all keeping up'}.`;
+      }
+      return `Queue ${q.component}: ${fmtCompact(q.waitingMessages)} waiting, ${trend(q.changePerSecond)}.`;
+    }),
     ...loadBalancers.map((l) => `${l.component} (${l.algorithm}): ${l.split}.`),
     ...(d.nodes.every((n) => n.kind !== 'users') ? ['Note: there is no users component, so the design receives no traffic.'] : []),
   ];

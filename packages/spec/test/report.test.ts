@@ -187,7 +187,7 @@ describe('simulationReport: overload and issues', () => {
 describe('simulationReport: time', () => {
   const queued = (size: '2vCPU' | '8vCPU') => docOf({
     users: 100_000,
-    components: [c('Users', 'users'), c('API', 'app', { size: '192vCPU' }), c('Q', 'queue'), c('W', 'worker', { size, autoscale: { min: 1, max: 50 } })],
+    components: [c('Users', 'users'), c('API', 'app', { size: '192vCPU' }), c('Q', 'queue', { queue: { mode: 'work' } }), c('W', 'worker', { size, autoscale: { min: 1, max: 50 } })],
     connections: [{ from: 'Users', to: 'API' }, { from: 'API', to: 'Q', async: true }, { from: 'Q', to: 'W', async: true }],
   });
 
@@ -201,7 +201,7 @@ describe('simulationReport: time', () => {
 
   test('queue growing, draining and steady', () => {
     const growing = simulationReport(queued('2vCPU'), { seconds: 10 });
-    expect(growing.queues).toEqual([{ component: 'Q', waitingMessages: expect.any(Number), changePerSecond: expect.any(Number) }]);
+    expect(growing.queues).toEqual([{ component: 'Q', mode: 'work', subscribers: [], waitingMessages: expect.any(Number), changePerSecond: expect.any(Number) }]);
     expect(growing.queues[0].changePerSecond).toBeGreaterThan(0);
     expect(growing.text).toMatch(/Queue Q: [\d.]+k waiting, growing \+[\d.]+k\/s\./);
 
@@ -210,7 +210,7 @@ describe('simulationReport: time', () => {
     expect(draining.text).toMatch(/Queue Q: [\d.]+k waiting, draining [\d.]+k\/s\./);
 
     const steady = simulationReport(queued('8vCPU'), { seconds: 60 });
-    expect(steady.queues).toEqual([{ component: 'Q', waitingMessages: 0, changePerSecond: 0 }]);
+    expect(steady.queues).toEqual([{ component: 'Q', mode: 'work', subscribers: [], waitingMessages: 0, changePerSecond: 0 }]);
     expect(steady.text).toContain('Queue Q: 0 waiting, steady.');
   });
 
@@ -227,7 +227,7 @@ describe('simulationReport: time', () => {
     const none = simulationReport(doc, { seconds: -5 });
     expect(none.scaling).toEqual([]);
     expect(none.text).not.toContain('Autoscaling');
-    expect(none.queues[0]).toEqual({ component: 'Q', waitingMessages: 0, changePerSecond: expect.any(Number) });
+    expect(none.queues[0]).toEqual({ component: 'Q', mode: 'work', subscribers: [], waitingMessages: 0, changePerSecond: expect.any(Number) });
   });
 
   test('a steady design stops early (nothing changes)', () => {

@@ -8,4 +8,6 @@ export interface Pick { type: 'node' | 'group' | 'note'; id: string }
 export interface Marquee { x1: number; y1: number; x2: number; y2: number }
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'conflict';
 export interface FlowPlayback { id: string; idx: number; playing: boolean }
+/** Playing the journey of a request through one component, one step at a time. */
+export interface JourneyPlayback { focus: string; idx: number; playing: boolean; /** when the current step started, ms */ at?: number }
 export interface Toast { text: string; at: number }

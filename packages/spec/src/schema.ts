@@ -51,6 +51,9 @@ export const ComponentSpec = z.object({
     requestsPerSecond: z.number().positive().max(10_000_000).optional().describe('What one instance handled in a real load test, at this size.'),
     latencyMs: z.number().positive().max(60_000).optional().describe('Time one request takes when the server is idle.'),
   }).optional().describe('Real numbers from a load test; they replace the built-in estimates.'),
+  queue: z.object({
+    mode: z.enum(['pubsub', 'work']).optional().describe('pubsub = every subscriber gets every message (Kafka topic, SNS; default for Kafka). work = each message goes to one consumer (SQS, RabbitMQ; default otherwise).'),
+  }).optional().describe('Only for kind queue.'),
   cache: z.object({
     ttlSeconds: z.number().int().min(1).max(86_400).optional().describe('How long a key lives. If the database goes down, the cache keeps answering hits until its keys expire. Default 60.'),
   }).optional().describe('Only for kind cache.'),

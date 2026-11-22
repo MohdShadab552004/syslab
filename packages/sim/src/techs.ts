@@ -13,6 +13,8 @@ export interface TechProfile {
   lat: number;
   /** default max connections per database server (SQL databases); absent = no connection limit */
   conn?: number;
+  /** queues: every subscriber gets every message by default (topics), instead of sharing them */
+  pubsub?: boolean;
   /** one line shown in the inspector */
   note: string;
 }
@@ -45,9 +47,9 @@ export const TECH_PROFILES: Partial<Record<NodeKind, Record<string, TechProfile>
     DynamoDB: { cap: 3, lat: 0.9, note: 'Managed and partitioned; scales with provisioned capacity.' },
   },
   queue: {
-    Kafka: { cap: 1, lat: 1, note: 'Partitioned log; hundreds of thousands of messages/s.' },
-    RabbitMQ: { cap: 0.12, lat: 1.5, note: 'Broker with per-message acks; tens of thousands of messages/s per node.' },
-    SQS: { cap: 0.3, lat: 10, note: 'Managed; nearly unlimited throughput but ~10–20 ms per call.' },
+    Kafka: { cap: 1, lat: 1, pubsub: true, note: 'Partitioned log; every consumer group reads every message at its own pace.' },
+    RabbitMQ: { cap: 0.12, lat: 1.5, note: 'Broker with per-message acks; a work queue by default (fan-out needs an exchange).' },
+    SQS: { cap: 0.3, lat: 10, note: 'Managed work queue: each message goes to one consumer; ~10–20 ms per call.' },
     'BullMQ (Redis)': { cap: 0.15, lat: 1.5, note: 'Job queue on one Redis; bounded by that Redis.' },
   },
   lb: {

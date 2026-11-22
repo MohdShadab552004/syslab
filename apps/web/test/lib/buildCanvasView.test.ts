@@ -83,16 +83,19 @@ describe('basic chain', () => {
     expect(edgeOf(v, 'e2').handles).toBeNull();
   });
 
-  it('selected node: selected flag and focus dimming', () => {
+  it('selected node: its whole journey lights up, numbered; the rest dims', () => {
     const d = blankDoc({ ...doc, nodes: [...doc.nodes, N('x', 'app', 0, 900, 'Lonely')] });
     const v = build(d, { sel: { type: 'node', id: 'u' }, pending: 'u', tool: 'connect' });
     expect(nodeOf(v, 'u').selected).toBe(true);
     expect(nodeOf(v, 'u').pending).toBe(true);
     expect(nodeOf(v, 'u').crosshair).toBe(true);
     expect(nodeOf(v, 'x').dim).toBe(true);
-    expect(nodeOf(v, 'db').dim).toBe(true);
-    expect(edgeOf(v, 'e2').dim).toBe(true);
+    expect(nodeOf(v, 'db').dim).toBe(false);
+    expect(['u', 'app', 'db'].map((id) => nodeOf(v, id).badge)).toEqual(['1', '2', '3']);
+    expect(nodeOf(v, 'x').badge).toBeNull();
     expect(edgeOf(v, 'e1').hl).toBe(true);
+    expect(edgeOf(v, 'e2').hl).toBe(true);
+    expect(v.journey).toMatchObject({ focus: 'u', label: 'Users', steps: 3, idx: null, playing: false });
   });
 
   it('multi selection lights connections between picked nodes', () => {

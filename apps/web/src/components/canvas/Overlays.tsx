@@ -144,6 +144,45 @@ function SpikeMenu({ spikes }: { spikes: Option[] }) {
   );
 }
 
+export interface JourneyBarProps {
+  label: string;
+  steps: number;
+  idx: number | null;
+  playing: boolean;
+  caption: string;
+  onPlay: () => void;
+  onPause: () => void;
+  onStep: (delta: number) => void;
+  onClose: () => void;
+}
+
+/** Plays the journey of the selected component: users → it → everything it calls, step by step. */
+export const JourneyBar = memo(function JourneyBar({ label, steps, idx, playing, caption, onPlay, onPause, onStep, onClose }: JourneyBarProps) {
+  return (
+    <div className="journeybar" onPointerDown={(e) => e.stopPropagation()} role="region" aria-label={`Journey through ${label}`}>
+      <div className="jtop">
+        <span className="jtitle">Journey through {label}</span>
+        {idx != null && <span className="jstep">Step {idx + 1} of {steps}</span>}
+      </div>
+      <div className="jcap" aria-live="polite">{caption}</div>
+      <div className="jbtns">
+        {idx == null
+          ? <Button size="sm" variant="primary" icon={ICON.play} onClick={onPlay}>Play journey</Button>
+          : (
+            <>
+              <Button size="sm" onClick={() => onStep(-1)} disabled={idx === 0} aria-label="Previous step">‹</Button>
+              {playing
+                ? <Button size="sm" icon={ICON.pause} onClick={onPause}>Pause</Button>
+                : <Button size="sm" variant="primary" icon={ICON.play} onClick={idx >= steps - 1 ? onPlay : () => onStep(0)}>{idx >= steps - 1 ? 'Replay' : 'Resume'}</Button>}
+              <Button size="sm" onClick={() => onStep(1)} disabled={idx >= steps - 1} aria-label="Next step">›</Button>
+              <Button size="sm" onClick={onClose}>Show all</Button>
+            </>
+          )}
+      </div>
+    </div>
+  );
+});
+
 export const ConnectHint = memo(function ConnectHint({ text }: { text: string }) {
   return <div className="connhint">{text}</div>;
 });

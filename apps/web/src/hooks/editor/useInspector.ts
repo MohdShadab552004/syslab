@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
 import {
-  CACHE_HIT, GROUP_COLORS, ICONS, KINDS, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
+  CACHE_HIT, GROUP_COLORS, ICONS, KINDS, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
 } from '@syslab/sim';
 import { canRewire, useEditorStore, type EdgeEnd, type EditorActions } from './editor.store';
@@ -82,6 +82,9 @@ export interface NodeInspectorView {
     hint: string;
   } | null;
   queue: {
+    modes: OptionView[];
+    modeHint: string;
+    subscribers: { key: string; label: string; behind: string; rate: string; bad: boolean }[];
     waiting: string;
     fill: LoadView;
     inRate: string;
@@ -324,7 +327,17 @@ export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: Edito
     const depth = q?.depth ?? 0, growth = q?.growth ?? 0;
     const fill = depth > 0.5 ? Math.log10(1 + depth) / Math.log10(1 + QUEUE_MAX) : 0;
     const noConsumer = !!q && q.consumers === 0;
+    const mode = queueConfig(n).mode;
     queue = {
+      modes: opts<'pubsub' | 'work'>([['pubsub', 'Pub/Sub', 'every subscriber gets every message'], ['work', 'Work queue', 'each message to one worker']], mode, (v) => a.updateQueue(id, { mode: v })),
+      modeHint: mode === 'pubsub'
+        ? 'Like a Kafka topic: each connected worker is its own consumer group and reads every message at its own pace. A slow worker falls behind alone; it never slows the others or the producer.'
+        : 'Like SQS: workers compete for messages, so adding workers shares the load. Each message is handled once.',
+      subscribers: (q?.subscribers ?? []).map((s) => ({
+        key: s.edgeId, label: byId.get(s.nodeId)?.label ?? s.nodeId,
+        behind: s.lag > 0.5 || s.growth > 0.5 ? `${fmtCompact(s.lag)} behind${s.growth > 0.5 ? ` · +${fmtCompact(s.growth)}/s` : s.growth < -0.5 ? ` · catching up` : ''}` : 'keeping up',
+        rate: `${fmtCompact(s.outRate)} msg/s`, bad: s.growth > 0.5 || s.full,
+      })),
       waiting: `${fmtInt(depth)} messages`,
       fill: { pct: `${Math.round((depth / QUEUE_MAX) * 1000) / 10}% full`, width: Math.round(fill * 100), color: q?.full ? '#e5484d' : growth > 0.5 ? '#e09a2c' : growth < -0.5 ? '#3f9b6b' : '#4f86c9' },
       inRate: `${fmtCompact(q?.inRate ?? 0)} msg/s`,

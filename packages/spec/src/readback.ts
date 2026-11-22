@@ -1,5 +1,5 @@
 import type { DesignDoc, DesignGroup } from '@syslab/types';
-import { DEFAULT_AUTOSCALE, KINDS, SIZES, cacheConfig, dbConfig, lbConfig } from '@syslab/sim';
+import { DEFAULT_AUTOSCALE, KINDS, SIZES, cacheConfig, dbConfig, lbConfig, queueConfig } from '@syslab/sim';
 import { SIZE_VALUES, type DesignSpecInput } from './schema';
 
 const LB_NAME = { rr: 'round_robin', wrr: 'weighted', lc: 'least_connections', hash: 'ip_hash' } as const;
@@ -52,6 +52,7 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
         ...(n.measured && (n.measured.rps || n.measured.ms) && { measured: { ...(n.measured.rps && { requestsPerSecond: n.measured.rps }), ...(n.measured.ms && { latencyMs: n.measured.ms }) } }),
         ...(L && { loadBalancer: { algorithm: LB_NAME[L.algo], ...(L.algo === 'hash' && { virtualNodes: L.vnodes as 1 | 10 | 100 }) } }),
         ...(n.kind === 'cache' && { cache: { ttlSeconds: cacheConfig(n).ttl } }),
+        ...(n.kind === 'queue' && { queue: { mode: queueConfig(n).mode } }),
         ...(n.down && { offline: true }),
       };
     }),

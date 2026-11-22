@@ -36,6 +36,26 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
 
       {v.queue && (
         <Card>
+          <SectionLabel>Delivery</SectionLabel>
+          <OptionGroup layout="grid" options={v.queue.modes} />
+          <Hint>{v.queue.modeHint}</Hint>
+          {v.queue.subscribers.length > 0 && (
+            <>
+              <div className="flab">Subscribers</div>
+              {v.queue.subscribers.map((s) => (
+                <div key={s.key} className="lbrow">
+                  <span className="lbname">{s.label}</span>
+                  <span className="lbshare">{s.rate}</span>
+                  <span className={s.bad ? 'v bad' : 'v'}>{s.behind}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </Card>
+      )}
+
+      {v.queue && (
+        <Card>
           <div className="row"><SectionLabel>Backlog</SectionLabel><span className={v.queue.trend.bad ? 'v bad' : 'v'}>{v.queue.trend.text}</span></div>
           <Row label="Waiting" value={v.queue.waiting} />
           <Row label={`Capacity (${v.queue.max})`} value={<span className="kindchip"><LoadBar size={70} width={v.queue.fill.width} color={v.queue.fill.color} />{v.queue.fill.pct}</span>} />

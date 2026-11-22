@@ -21,7 +21,12 @@ things:
 - **Cache-aside** (app → cache and app → db): reads go to the cache first. 90% hit
   (`CACHE_HIT`); misses and all writes go to the db. **Read-through** (app → cache → db) works the
   same way through the cache.
-- **Queue**: consumers pull only what they can handle; the rest waits as backlog.
+- **Queue**: consumers pull only what they can handle; the rest waits as backlog. Two delivery modes:
+  - **Pub/Sub** (default for Kafka): every subscriber gets every message, like a Kafka consumer
+    group per worker or SNS. Each subscriber keeps its own backlog (lag); a slow one falls behind
+    alone and never fails the producer.
+  - **Work queue** (default for SQS, RabbitMQ and others): each message goes to one consumer, so
+    consumers share the load in proportion to their capacity.
 
 ## 2. Capacity
 
@@ -99,7 +104,7 @@ fail(node) = 1 − (1 − dropped share) × (1 − fail of what it calls)
 |---|---|
 | Horizontal autoscaling | Adds or removes replicas towards the CPU target; a replica drains for 2 s before it is removed |
 | Vertical autoscaling | Moves to the smallest machine that fits under the target |
-| Queues | Depth changes by (in − out) every second, capped at 1M messages |
+| Queues | Depth changes by (in − out) every second, capped at 1M messages; a pub/sub queue tracks each subscriber's lag separately |
 | Cache offline | Memory is lost; it comes back **cold** (hit rate 0%) and warms up 25% of the gap per second (stampede on the db) |
 | DB behind a cache offline | Keys expire linearly over one **TTL**, so errors climb to 100% after one TTL |
 | Retries | A caller with retries sends `1 + f + f² + …` attempts, where `f` is what the target dropped last second. On an overloaded target this feeds itself (a **retry storm**) |

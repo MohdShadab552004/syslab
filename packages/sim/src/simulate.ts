@@ -1,6 +1,6 @@
 import type { DesignDoc, DesignEdge, DesignNode } from '@syslab/types';
 import { KINDS, RPS_PER_USER, SIZES } from './catalog';
-import { autoscale, dbConfig, lbConfig } from './factory';
+import { autoscale, dbConfig, lbConfig, queueConfig } from './factory';
 import { balance, type Backend } from './balancer';
 import { SERVICE_P95, SERVICE_P99, queueTimes, workersFor } from './queueing';
 import { techProfile } from './techs';
@@ -41,7 +41,16 @@ export interface QueueStat {
   growth: number;
   full: boolean;
   consumers: number;
+  mode: 'pubsub' | 'work';
+  /** pub/sub only: each subscriber's own backlog (lag) and pace */
+  subscribers: SubscriberStat[];
 }
+
+/** One subscriber of a pub/sub queue: it gets every message and keeps its own backlog. */
+export interface SubscriberStat { edgeId: string; nodeId: string; lag: number; outRate: number; growth: number; full: boolean }
+
+/** Runtime key of a pub/sub subscriber's backlog (stored next to queue depths). */
+export const lagKey = (queueId: string, edgeId: string) => `${queueId}>${edgeId}`;
 
 export interface DbLoad { w: number; r: number }
 
@@ -365,9 +374,36 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
         stats.push({ nodeId: b.nodeId, edgeId: b.edgeId, replica: b.replica, share: shares[i], rps: r, down: false });
       });
       lbBackends[id] = stats.sort((x, y) => (x.edgeId === y.edgeId ? x.replica - y.replica : all.findIndex((e) => e.id === x.edgeId) - all.findIndex((e) => e.id === y.edgeId)));
+    } else if (n.kind === 'queue' && queueConfig(n).mode === 'pubsub' && all.length) {
+      // Pub/sub (Kafka topic, SNS): every subscriber gets every message and reads at its own pace.
+      // Each keeps its own backlog (consumer lag); a slow subscriber never slows the others and
+      // never fails the producer. At the cap, the oldest messages expire for that subscriber.
+      const subs: SubscriberStat[] = all.map((e) => {
+        const t = byId.get(e.to)!, cap = capOf(t), lag = rt.qDepth?.[lagKey(id, e.id)] ?? 0;
+        const outRate = n.down ? 0 : Math.min(cap, sent + lag);
+        let growth = sent - outRate;
+        const full = lag >= QUEUE_MAX && growth > 0;
+        if (full) growth = 0;
+        return { edgeId: e.id, nodeId: t.id, lag, outRate, growth, full };
+      });
+      subs.forEach((s, i) => {
+        const e = all[i];
+        inflow[e.to] += s.outRate;
+        edgeRps[e.id] = s.outRate;
+        edgeOrig[e.id] = s.outRate;
+        const tr = repIn[e.to];
+        for (let j = 0; j < tr.length; j++) tr[j] += s.outRate / tr.length;
+      });
+      // the queue as a whole is as far behind as its slowest subscriber
+      const slow = subs.reduce((a, b) => (b.lag + b.growth > a.lag + a.growth ? b : a));
+      queue[id] = {
+        depth: slow.lag, inRate: sent, outRate: slow.outRate, drainCap: Math.min(...subs.map((s) => capOf(byId.get(s.nodeId)!))),
+        growth: slow.growth, full: subs.some((s) => s.full), consumers: subs.filter((s) => capOf(byId.get(s.nodeId)!) > 0).length,
+        mode: 'pubsub', subscribers: subs,
+      };
     } else if (n.kind === 'queue') {
-      // A queue decouples producers from consumers: consumers pull only what they can handle,
-      // the rest waits as backlog (drained on later ticks) instead of being dropped.
+      // A work queue decouples producers from consumers: each message goes to one consumer, who
+      // pull only what they can handle; the rest waits as backlog instead of being dropped.
       const depth = rt.qDepth?.[id] ?? 0;
       const caps = all.map((e) => capOf(byId.get(e.to)!));
       const drainCap = caps.reduce((s, c) => s + c, 0);
@@ -376,7 +412,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
       const full = depth >= QUEUE_MAX;
       // a full queue rejects what it cannot hold
       if (full && growth > 0) { dropFrac[id] = sent > 0 ? Math.min(1, growth / sent) : 0; growth = 0; }
-      queue[id] = { depth, inRate: sent, outRate, drainCap, growth, full, consumers: caps.filter((c) => c > 0).length };
+      queue[id] = { depth, inRate: sent, outRate, drainCap, growth, full, consumers: caps.filter((c) => c > 0).length, mode: 'work', subscribers: [] };
       // competing consumers: each pulls in proportion to how fast it can work
       all.forEach((e, i) => {
         const share = drainCap === Infinity ? (caps[i] === Infinity ? 1 / caps.filter((c) => c === Infinity).length : 0) : drainCap > 0 ? caps[i] / drainCap : 0;

@@ -36,6 +36,8 @@ export const DESIGN_GUIDE = `How to describe a SysLab design:
   Either way reads hit the cache first (90% hits); misses and all writes reach the db.
 - Several app servers (replicas or horizontal autoscale) need a load balancer, gateway or queue in front.
 - Use a queue + worker for slow or async work (emails, encoding, fan-out); mark those connections "async": true.
+- Kafka is pub/sub: every worker connected to it gets every message (each worker = its own consumer group).
+  SQS / RabbitMQ are work queues: workers share the messages. Override with queue.mode.
 - For a db, set database.readReplicas for read-heavy loads and database.shards for write-heavy loads.
 - Latency follows queueing theory: a component gets slow well before 100% load if it has few workers.
 - Postgres/MySQL refuse connections past max_connections: every app/worker instance holds 10. Many

@@ -142,6 +142,10 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       if (kind === 'users') warnings.push(`measured numbers on "${c.name}" were ignored: users have no capacity.`);
       else over.measured = { ...(c.measured.requestsPerSecond && { rps: c.measured.requestsPerSecond }), ...(c.measured.latencyMs && { ms: c.measured.latencyMs }) };
     }
+    if (c.queue) {
+      if (kind !== 'queue') warnings.push(`queue settings on "${c.name}" were ignored: it is not a queue.`);
+      else if (c.queue.mode) over.queuec = { mode: c.queue.mode };
+    }
     if (c.cache) {
       if (kind !== 'cache') warnings.push(`cache settings on "${c.name}" were ignored: it is not a cache.`);
       else if (c.cache.ttlSeconds != null) over.cachec = { ttl: c.cache.ttlSeconds };

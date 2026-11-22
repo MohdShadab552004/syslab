@@ -1,7 +1,7 @@
 import type { DesignDoc } from '@syslab/types';
 import { SIZES } from './catalog';
 import { cacheConfig } from './factory';
-import { CACHE_HIT, QUEUE_MAX, type Runtime, type SimResult } from './simulate';
+import { CACHE_HIT, QUEUE_MAX, lagKey, type Runtime, type SimResult } from './simulate';
 
 export interface ScaleEvent { id: string; at: number; up: boolean; text: string }
 
@@ -67,13 +67,23 @@ export function stepAutoscaler(
   return changed ? { runtime: { ...rt, autoRep, drain, autoSize }, events } : null;
 }
 
-/** One second of queue time: every queue grows or drains by its net rate. Null when nothing moved. */
+/**
+ * One second of queue time: every queue grows or drains by its net rate; a pub/sub queue moves
+ * each subscriber's own backlog. Null when nothing moved.
+ */
 export function stepQueues(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<string, number> | null {
   const next: Record<string, number> = {};
   let changed = false;
+  const move = (key: string, growth: number) => {
+    const cur = rt.qDepth?.[key] ?? 0;
+    const d = Math.max(0, Math.min(QUEUE_MAX, cur + growth));
+    if (d > 0.5) next[key] = d;
+    if (Math.abs(d - cur) > 0.5) changed = true;
+  };
   for (const n of doc.nodes) {
     if (n.kind !== 'queue') continue;
     const q = sim.queue[n.id];
+    if (q?.mode === 'pubsub') { for (const s of q.subscribers) move(lagKey(n.id, s.edgeId), s.growth); continue; }
     const cur = rt.qDepth?.[n.id] ?? 0;
     const d = q ? Math.max(0, Math.min(QUEUE_MAX, cur + q.growth)) : 0;
     if (d > 0.5) next[n.id] = d;
