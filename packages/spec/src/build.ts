@@ -133,6 +133,10 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       if (kind !== 'lb') warnings.push(`loadBalancer settings on "${c.name}" were ignored: it is not an lb.`);
       else over.lbc = { ...(c.loadBalancer.algorithm && { algo: LB_ALGO[c.loadBalancer.algorithm] }), ...(c.loadBalancer.virtualNodes && { vnodes: c.loadBalancer.virtualNodes }) };
     }
+    if (c.cache) {
+      if (kind !== 'cache') warnings.push(`cache settings on "${c.name}" were ignored: it is not a cache.`);
+      else if (c.cache.ttlSeconds != null) over.cachec = { ttl: c.cache.ttlSeconds };
+    }
     if (c.offline) over.down = true;
     nodes.push(makeNode(c.id, kind, 0, 0, c.name, over));
   }

@@ -1,6 +1,7 @@
 import type { DesignDoc } from '@syslab/types';
 import { SIZES } from './catalog';
-import { QUEUE_MAX, type Runtime, type SimResult } from './simulate';
+import { cacheConfig } from './factory';
+import { CACHE_HIT, QUEUE_MAX, type Runtime, type SimResult } from './simulate';
 
 export interface ScaleEvent { id: string; at: number; up: boolean; text: string }
 
@@ -82,11 +83,39 @@ export function stepQueues(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<
   return changed ? next : null;
 }
 
-/** Everything that changes with time, in one tick: autoscaling plus queue backlogs. */
+/** share of the gap to a warm cache that refills each second while traffic flows */
+export const CACHE_WARMUP = 0.25;
+
+/**
+ * Cache contents over time, one second per call:
+ * - offline: memory is lost, so it comes back cold (every read misses, the db takes the stampede);
+ * - every db behind it offline: nothing can refill, keys expire over one TTL until every read fails;
+ * - otherwise: misses refill the cache and the hit ratio climbs back to normal.
+ */
+export function stepCaches(doc: DesignDoc, sim: SimResult, rt: Runtime): Record<string, number> | null {
+  const next: Record<string, number> = {};
+  let changed = false;
+  for (const n of doc.nodes) {
+    if (n.kind !== 'cache') continue;
+    const cur = rt.cacheHit?.[n.id] ?? CACHE_HIT;
+    let h = cur;
+    if (n.down) h = 0;
+    else if (sim.cacheRefill[n.id] === false) h = Math.max(0, cur - CACHE_HIT / Math.max(1, cacheConfig(n).ttl));
+    else if ((sim.inflow[n.id] ?? 0) > 0) { h = cur + (CACHE_HIT - cur) * CACHE_WARMUP; if (CACHE_HIT - h < 0.005) h = CACHE_HIT; }
+    if (h < CACHE_HIT) next[n.id] = h;
+    if (Math.abs(h - cur) > 1e-6) changed = true;
+  }
+  return changed ? next : null;
+}
+
+/** Everything that changes with time, in one tick: autoscaling, queue backlogs and cache contents. */
 export function stepRuntime(doc: DesignDoc, sim: SimResult, rt: Runtime, now: number): { runtime: Runtime; events: ScaleEvent[] } | null {
   const auto = stepAutoscaler(doc, sim, rt, now);
   const q = stepQueues(doc, sim, rt);
-  if (!auto && !q) return null;
-  const runtime = auto ? auto.runtime : rt;
-  return { runtime: q ? { ...runtime, qDepth: q } : runtime, events: auto?.events ?? [] };
+  const c = stepCaches(doc, sim, rt);
+  if (!auto && !q && !c) return null;
+  let runtime = auto ? auto.runtime : rt;
+  if (q) runtime = { ...runtime, qDepth: q };
+  if (c) runtime = { ...runtime, cacheHit: c };
+  return { runtime, events: auto?.events ?? [] };
 }

@@ -15,6 +15,8 @@ export interface Runtime {
   spike: number;
   /** messages waiting in each queue */
   qDepth: Record<string, number>;
+  /** current hit ratio of caches that are not fully warm (cold after a restart, or expiring while the db is down) */
+  cacheHit?: Record<string, number>;
 }
 
 export const EMPTY_RUNTIME: Runtime = { autoRep: {}, drain: {}, autoSize: {}, spike: 1, qDepth: {} };
@@ -71,6 +73,12 @@ export interface SimResult {
   lbBackends: Record<string, LbBackendStat[]>;
   /** per-queue backlog */
   queue: Record<string, QueueStat>;
+  /** offline caches whose reads were sent on to the database instead of failing */
+  cacheBypass: Record<string, boolean>;
+  /** live caches backed by a database: false while every database behind it is offline (misses cannot refill) */
+  cacheRefill: Record<string, boolean>;
+  /** hit ratio each live cache is answering with right now */
+  cacheHit: Record<string, number>;
   nodeCost: Record<string, number>;
   nodeLatency: Record<string, number>;
   onSlowPath: Record<string, boolean>;
@@ -91,7 +99,10 @@ export const OVERLOAD = 1.001;
 export const isOver = (load: number) => load > OVERLOAD;
 
 /** latency multiplier when a node runs hot */
-export const congestion = (load: number) => (load < 0.7 ? 1 : 1 + Math.pow((Math.min(load, 1.6) - 0.7) / 0.3, 2) * 5);
+/** share of cache reads answered from memory; the rest are misses that go on to the database */
+export const CACHE_HIT = 0.9;
+
+export const congestion =(load: number) => (load < 0.7 ? 1 : 1 + Math.pow((Math.min(load, 1.6) - 0.7) / 0.3, 2) * 5);
 
 function topoOrder(nodes: DesignNode[], out: Map<string, DesignEdge[]>, indeg: Record<string, number>): string[] {
   const order: string[] = [];
@@ -144,6 +155,9 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
   const repIn: Record<string, number[]> = {}, repLoad: Record<string, number[]> = {};
   const edgeRepRps: Record<string, number[]> = {}, lbBackends: Record<string, LbBackendStat[]> = {};
   const queue: Record<string, QueueStat> = {};
+  const cacheBypass: Record<string, boolean> = {};
+  const cacheRefill: Record<string, boolean> = {}, cacheHit: Record<string, number> = {};
+  const hitOf = (id: string) => (cacheHit[id] = rt.cacheHit?.[id] ?? CACHE_HIT);
   /** rps a target node could take right now (0 when offline) */
   const capOf = (t: DesignNode) => (t.down ? 0 : t.kind === 'users' ? Infinity : per[t.id] * reps[t.id] * (t.kind === 'db' ? dbConfig(t).shards : 1));
   let dropped = 0, userNodes = 0;
@@ -188,8 +202,11 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     if (n.down) c = 0;
     cap[id] = c;
 
-    // A dead cache is bypassed (cache-aside): traffic falls through to its backing store.
-    const bypass = n.kind === 'cache' && n.down;
+    // A dead read-through cache (cache → db) is bypassed: traffic falls through to its backing store.
+    // A dead cache with nothing behind it just fails; a caller that also talks to the db sends the
+    // reads there instead (cache-aside, handled where the caller splits its traffic below).
+    const bypass = n.kind === 'cache' && n.down && out.get(id)!.length > 0;
+    if (bypass) cacheBypass[id] = true;
     const ri = repIn[id];
     let served: number;
     if (!bypass && n.kind !== 'db' && n.kind !== 'users' && ri.length > 1 && Number.isFinite(c) && c > 0) {
@@ -205,9 +222,11 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     }
     dropped += inn - served;
 
-    const pass = bypass ? 1 : n.kind === 'cache' ? read * 0.1 + (1 - read) : k.pass;
-    const sent = served * pass;
     const all = out.get(id)!;
+    // read-through: misses (and writes) go on to whatever sits behind the cache
+    if (n.kind === 'cache' && !n.down && all.length) cacheRefill[id] = all.some((e) => !byId.get(e.to)!.down);
+    const pass = bypass ? 1 : n.kind === 'cache' ? (n.down ? 0 : read * (1 - hitOf(id)) + (1 - read)) : k.pass;
+    const sent = served * pass;
 
     if (n.kind === 'lb') {
       // Health check skips offline targets; the algorithm splits across every live replica.
@@ -255,14 +274,42 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
         for (let j = 0; j < tr.length; j++) tr[j] += r / tr.length;
       });
     } else {
-      const sumW = all.reduce((s, e) => s + (e.weight || 1), 0);
-      for (const e of all) {
-        const r = sumW ? (sent * (e.weight || 1)) / sumW : 0;
+      const w = (e: DesignEdge) => e.weight || 1;
+      const sumOf = (es: DesignEdge[]) => es.reduce((s, e) => s + w(e), 0);
+      const send = (e: DesignEdge, r: number) => {
         inflow[e.to] += r;
-        edgeRps[e.id] = r;
+        edgeRps[e.id] += r;
         // without a load balancer in between, traffic spreads evenly over the target's replicas
         const tr = repIn[e.to];
         for (let j = 0; j < tr.length; j++) tr[j] += r / tr.length;
+      };
+      const split = (es: DesignEdge[], r: number) => { const sw = sumOf(es); for (const e of es) send(e, sw ? (r * w(e)) / sw : 0); };
+      for (const e of all) edgeRps[e.id] = 0;
+
+      // Cache-aside: the caller talks to a cache *and* to the database itself. Every read asks the
+      // cache first and only misses go on to the database; writes go straight to the database.
+      // When the cache is offline, all of its reads land on the database.
+      const caches = all.filter((e) => byId.get(e.to)!.kind === 'cache' && out.get(e.to)!.length === 0);
+      const stores = all.filter((e) => { const t = byId.get(e.to)!.kind; return t === 'db' || t === 'store'; });
+      if (caches.length && stores.length) {
+        const lane = new Set([...caches, ...stores]);
+        const sumW = sumOf(all);
+        split(all.filter((e) => !lane.has(e)), (sent * sumOf(all.filter((e) => !lane.has(e)))) / sumW);
+        const laneRps = (sent * sumOf([...lane])) / sumW;
+        const reads = laneRps * read, cw = sumOf(caches);
+        // a db connection marked read-only / write-only only gets that kind of traffic
+        const carrying = (op: 'read' | 'write') => { const m = stores.filter((e) => e.op === op || e.op === 'both'); return m.length ? m : stores; };
+        const dbUp = carrying('read').some((e) => !byId.get(e.to)!.down);
+        let toDb = 0;
+        for (const e of caches) {
+          const r = (reads * w(e)) / cw;
+          if (byId.get(e.to)!.down) { toDb += r; cacheBypass[e.to] = true; }
+          else { send(e, r); toDb += r * (1 - hitOf(e.to)); cacheRefill[e.to] = dbUp; }
+        }
+        split(carrying('read'), toDb);
+        split(carrying('write'), laneRps - reads);
+      } else {
+        split(all, sent);
       }
     }
   }
@@ -318,7 +365,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
 
   return {
     users, rps, byId, inflow, cap, load, edgeRps, reps, sizeIdx, desiredReps, desiredSize,
-    needsLB, dbLoad, repLoad, edgeRepRps, lbBackends, queue, nodeCost, nodeLatency, onSlowPath, errorRate, p95, cost,
+    needsLB, dbLoad, repLoad, edgeRepRps, lbBackends, queue, cacheBypass, cacheRefill, cacheHit, nodeCost, nodeLatency, onSlowPath, errorRate, p95, cost,
   };
 }
 

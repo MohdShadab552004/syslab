@@ -24,6 +24,16 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
         </Card>
       )}
 
+      {v.cache && (
+        <Card>
+          <div className="row"><SectionLabel>Cache</SectionLabel><span className={v.cache.state.bad ? 'v bad' : 'v'}>{v.cache.state.text}</span></div>
+          <Row label="Hit rate" value={v.cache.hit} />
+          <div className="flab">Key TTL</div>
+          <OptionGroup options={v.cache.ttl} />
+          <Hint>{v.cache.hint}</Hint>
+        </Card>
+      )}
+
       {v.queue && (
         <Card>
           <div className="row"><SectionLabel>Backlog</SectionLabel><span className={v.queue.trend.bad ? 'v bad' : 'v'}>{v.queue.trend.text}</span></div>

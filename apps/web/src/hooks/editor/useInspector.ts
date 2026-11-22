@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
 import {
-  GROUP_COLORS, ICONS, KINDS, LB_ALGOS, SIZES, TECHS, congestion, dbConfig, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
+  CACHE_HIT, GROUP_COLORS, ICONS, KINDS, cacheConfig, LB_ALGOS, SIZES, TECHS, congestion, dbConfig, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
 } from '@syslab/sim';
 import { canRewire, useEditorStore, type EdgeEnd, type EditorActions } from './editor.store';
@@ -67,6 +67,12 @@ export interface NodeInspectorView {
     backends: { key: string; label: string; share: string; rps: string; load: LoadView; weight: StepperView | null; down: boolean }[];
     spread: { text: string; bad: boolean };
     empty: boolean;
+  } | null;
+  cache: {
+    ttl: OptionView[];
+    hit: string;
+    state: { text: string; bad: boolean };
+    hint: string;
   } | null;
   queue: {
     waiting: string;
@@ -243,6 +249,29 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
     };
   }
 
+  let cache: NodeInspectorView['cache'] = null;
+  if (n.kind === 'cache') {
+    const C = cacheConfig(n), h = sim.cacheHit[id] ?? CACHE_HIT, refill = sim.cacheRefill[id];
+    const ttlText = C.ttl >= 3600 ? `${C.ttl / 3600} h` : C.ttl >= 60 ? `${C.ttl / 60} min` : `${C.ttl} s`;
+    cache = {
+      ttl: opts<number>([[10, '10s'], [30, '30s'], [60, '1m'], [300, '5m'], [3600, '1h']], C.ttl, (v) => a.updateCache(id, { ttl: v })),
+      hit: n.down ? '—' : `${Math.round(h * 100)}% of reads`,
+      state: n.down ? { text: 'Offline · contents lost', bad: true }
+        : refill === false ? { text: h > 0 ? `DB offline · empty in ~${Math.ceil((h / CACHE_HIT) * C.ttl)}s` : 'DB offline · empty', bad: true }
+        : h < CACHE_HIT - 0.005 ? { text: 'Warming up', bad: false }
+        : { text: 'Warm', bad: false },
+      hint: n.down
+        ? 'Memory is lost while it is offline. When it comes back it starts empty: every read misses and goes to the database until the cache refills.'
+        : refill === false
+          ? `The database behind it is offline, so expired keys cannot be read again. Hits are still served, but every miss and every write fails. Keys live ${ttlText}, so after that every read fails too.`
+        : h < CACHE_HIT - 0.005
+          ? 'The cache started empty, so most reads miss and the database takes the extra load (a cache stampede). Misses refill it and the hit rate climbs back.'
+        : refill === undefined
+          ? 'Nothing is behind this cache, so it is the only copy of this data. If it goes offline, these reads fail.'
+          : `${Math.round(CACHE_HIT * 100)}% of reads are answered from memory; misses go to the database and refill the cache. Keys live ${ttlText}: if the database goes down, the cache keeps answering until they expire.`,
+    };
+  }
+
   let queue: NodeInspectorView['queue'] = null;
   if (n.kind === 'queue') {
     const q = sim.queue[id];
@@ -295,6 +324,7 @@ function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorAction
     autoscale,
     db,
     lb,
+    cache,
     queue,
     replicas: n.kind !== 'users' && !auto && n.kind !== 'db'
       ? { value: n.replicas, onDec: () => a.updateNode(id, { replicas: Math.max(1, n.replicas - 1) }), onInc: () => a.updateNode(id, { replicas: Math.min(20, n.replicas + 1) }) }

@@ -49,6 +49,11 @@ export interface LbConfig {
   vnodes: number;
 }
 
+export interface CacheConfig {
+  /** seconds a key lives before it expires and must be re-read from the database */
+  ttl: number;
+}
+
 export interface DesignNode {
   id: string;
   kind: NodeKind;
@@ -64,6 +69,8 @@ export interface DesignNode {
   dbc?: Partial<DbConfig>;
   /** load balancer settings (kind 'lb' only) */
   lbc?: Partial<LbConfig>;
+  /** cache settings (kind 'cache' only) */
+  cachec?: Partial<CacheConfig>;
 }
 
 export type EdgeMode = 'sync' | 'async';
