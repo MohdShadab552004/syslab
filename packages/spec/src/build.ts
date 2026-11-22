@@ -22,7 +22,7 @@ export interface BuildResult {
 const LB_ALGO = { round_robin: 'rr', weighted: 'wrr', least_connections: 'lc', ip_hash: 'hash' } as const;
 const sizeIndex = (s?: string) => (s ? Math.max(0, SIZE_VALUES.indexOf(s as (typeof SIZE_VALUES)[number])) : undefined);
 const key = (s: string) => s.trim().toLowerCase();
-const slug = (s: string) => key(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'x';
+const slug = (s: string) => key(s).replace(/[^a-z0-9]+/g, '-').slice(0, 24).replace(/^-+|-+$/g, '') || 'x';
 
 /** Levenshtein distance, for "did you mean …" hints. */
 function distance(a: string, b: string): number {

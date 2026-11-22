@@ -108,7 +108,7 @@ export class DesignsService {
       if (!Array.isArray(doc[key])) throw new BadRequestException(`doc.${key} must be an array`);
       if (doc[key].length > LIMITS[key]) throw new BadRequestException(`Too many ${key} (max ${LIMITS[key]})`);
     }
-    if (typeof doc.users !== 'number' || doc.users < 0) throw new BadRequestException('doc.users must be a positive number');
+    if (typeof doc.users !== 'number' || doc.users < 0) throw new BadRequestException('doc.users must be a number, 0 or more');
     if (!doc.requirements || typeof doc.requirements !== 'object') throw new BadRequestException('doc.requirements is required');
     const ids = new Set(doc.nodes.map((n) => n.id));
     if (ids.size !== doc.nodes.length) throw new BadRequestException('Duplicate node ids');

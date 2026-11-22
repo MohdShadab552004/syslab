@@ -77,7 +77,7 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
   const mean = sim.rps > 0 ? Math.round(sim.meanLatency) : null;
   const lines = [
     `Traffic: ${fmtCompact(sim.users)} concurrent users${(opts.spike ?? 1) > 1 ? ` (spike ×${opts.spike})` : ''} → ${fmtCompact(sim.rps)} requests/s.`,
-    `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.${p95 == null ? '' : ` (mean ${fmtMs(mean!)}, P99 ${fmtMs(p99!)})`}`,
+    `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.${p95 == null ? '' : ` (mean ${fmtMs(mean!)}, P99 ${fmtMs(p99!)})`}${sim.fastFailRate > 0.05 ? ` Latency only counts answered requests: ${Math.round(sim.fastFailRate * 100)}% were rejected instantly by an open circuit breaker.` : ''}`,
     `Errors: ${(sim.errorRate * 100).toFixed(1)}%. Cost: ${fmtMoney(sim.cost)}/month.`,
     overloaded.length ? `Overloaded: ${overloaded.map((o) => `${o.component} ${o.loadPercent}%`).join(', ')}.` : busiest ? `No component is overloaded; busiest is ${busiest.component} at ${busiest.loadPercent}%.` : 'No traffic, so nothing is loaded.',
     ...issues,

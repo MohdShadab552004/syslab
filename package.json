@@ -7,13 +7,16 @@
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "pnpm --filter @syslab/api prisma:migrate",
     "db:seed": "pnpm --filter @syslab/api prisma:seed"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "5.1.0",
     "turbo": "^2.11.13",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "5.1.0"
   }
 }

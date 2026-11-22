@@ -7,3 +7,7 @@ dist
 .env.local
 apps/api/src/generated
 *.tsbuildinfo
+
+# test coverage reports
+coverage/
+coverage-*/

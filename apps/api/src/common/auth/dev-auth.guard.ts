@@ -23,7 +23,9 @@ export class DevAuthGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [ctx.getHandler(), ctx.getClass()]);
     if (isPublic) return true;
-    this.cached ??= this.users.upsertByEmail(this.config.get('devUserEmail', { infer: true }), 'Dev User');
+    // remember the user, but not a failure (e.g. the database was briefly down): retry next time
+    this.cached ??= this.users.upsertByEmail(this.config.get('devUserEmail', { infer: true }), 'Dev User')
+      .catch((err: unknown) => { this.cached = null; throw err; });
     ctx.switchToHttp().getRequest().user = await this.cached;
     return true;
   }

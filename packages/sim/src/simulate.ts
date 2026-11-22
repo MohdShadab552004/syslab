@@ -352,6 +352,8 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
           bs.push({ key: `${t.id}:${r}`, nodeId: t.id, edgeId: e.id, replica: r, cap: capRep, lat: service[t.id] || 1, workers: workers[t.id], weight: e.weight || 1 });
         }
       }
+      // every backend offline: the balancer has nowhere to send requests and answers 503
+      if (!bs.length && all.length && sent > 0) dropFrac[id] = 1;
       const shares = balance(L.algo, bs, sent, L.vnodes, (b, r) => (Number.isFinite(b.cap) && b.cap > 0 ? latencyAt(b.workers, b.lat, r / b.cap) : b.lat));
       bs.forEach((b, i) => {
         const r = sent * shares[i];

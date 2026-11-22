@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { S, design, run } from './helpers.mjs';
+import { S, design, run } from './helpers';
 
 const basic = (users = 12000) => design({ users }, ['u', 'users'], ['api', 'app'], ['db', 'db']).edge('u', 'api').edge('api', 'db');
 
