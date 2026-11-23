@@ -85,6 +85,8 @@ export interface Route {
   len: number;
   /** arrowhead tip and direction (degrees) */
   arrow: { x: number; y: number; ang: number };
+  /** where the line leaves its source (on the rim) and the direction pointing back into it */
+  start: { x: number; y: number; ang: number };
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -95,7 +97,7 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
  * and the vertical trunk, so fanned lines bundle naturally. The end is pulled back by `targetR`
  * so the arrowhead sits on the target's edge instead of under it.
  */
-export function elbowRoute(a: Point, b: Point, targetR: number): Route {
+export function elbowRoute(a: Point, b: Point, targetR: number, fromR = 0): Route {
   const dx = b.x - a.x, dy = b.y - a.y;
   const horizontal = Math.abs(dx) >= Math.abs(dy) * 0.6;
   let pts: Point[];
@@ -114,7 +116,12 @@ export function elbowRoute(a: Point, b: Point, targetR: number): Route {
   let len = 0;
   for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   const d = pts.map((v, i) => `${i ? 'L' : 'M'}${v.x} ${v.y}`).join(' ');
-  return { pts, d, len: r1(len), arrow: { x: end.x, y: end.y, ang: r1((Math.atan2(uy, ux) * 180) / Math.PI) } };
+  // the line starts under the source; its visible start is where the first leg leaves the rim
+  const f0 = pts[0], f1 = pts[1], firstLen = Math.hypot(f1.x - f0.x, f1.y - f0.y);
+  const sx = firstLen > 0 ? (f1.x - f0.x) / firstLen : 0, sy = firstLen > 0 ? (f1.y - f0.y) / firstLen : 0;
+  const lift = Math.min(Math.max(0, fromR), Math.max(0, firstLen - 4));
+  const start = { x: r1(f0.x + sx * lift), y: r1(f0.y + sy * lift), ang: r1((Math.atan2(0 - sy, 0 - sx) * 180) / Math.PI) };
+  return { pts, d, len: r1(len), arrow: { x: end.x, y: end.y, ang: r1((Math.atan2(uy, ux) * 180) / Math.PI) }, start };
 }
 
 /** How a line meets its two nodes: their radii and the port offsets on each side. */
@@ -159,7 +166,9 @@ export function curveRoute(a: Point, b: Point, ends: Ends): Route {
   // the arrow points along the curve's last tangent (end minus second control point)
   const ang = (Math.atan2(e.y - c2.y, e.x - c2.x) * 180) / Math.PI;
   const f = (v: Point) => `${r1(v.x)} ${r1(v.y)}`;
-  return { pts, d: `M${f(s)} C${f(c1)} ${f(c2)} ${f(e)}`, len: r1(len), arrow: { x: r1(e.x), y: r1(e.y), ang: r1(ang) } };
+  // the start points back along the first tangent (start minus first control point)
+  const sAng = (Math.atan2(s.y - c1.y, s.x - c1.x) * 180) / Math.PI;
+  return { pts, d: `M${f(s)} C${f(c1)} ${f(c2)} ${f(e)}`, len: r1(len), arrow: { x: r1(e.x), y: r1(e.y), ang: r1(ang) }, start: { x: r1(s.x), y: r1(s.y), ang: r1(sAng) } };
 }
 
 /** Port offsets: lines leaving (or entering) one node spread out, ordered by where they go. */

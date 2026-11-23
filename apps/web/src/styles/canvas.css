@@ -16,6 +16,11 @@
   .toolbar .btn:not(.keep) { font-size: 0; gap: 0; padding: 0 8px; }
   .toolbar .btn:not(.keep)::after { font-size: 11px; }
 }
+/* phones: Spike and View menus show icon + caret only, so the whole toolbar fits (Clear included) */
+@container hud (max-width: 480px) {
+  .toolbar .btn.keep { font-size: 0; gap: 2px; padding: 0 7px; }
+  .toolbar .btn.keep::after { font-size: 11px; }
+}
 .hud > * { pointer-events: auto; }
 .hud .empty { position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%); pointer-events: none; }
 .zoombar { position: absolute; right: 16px; bottom: 16px; z-index: 30; display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 2px 0 var(--line); }
@@ -328,3 +333,42 @@
 .edge.repl.gossip .arrow { display: none; }
 .pkt.repl.gossip { width: 7px; height: 7px; top: -4.5px; background: #b8e3c9; border-color: #3f9b6b; }
 .lod-far .edge.repl.gossip { border-top-width: calc(1.5px * var(--lw)); }
+
+.journeybar .jclose { margin-left: auto; width: 26px; height: 26px; flex: none; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.journeybar .jclose:hover { background: var(--surface-2); color: var(--ink); }
+
+/* ---------- one look for every floating box on the canvas ---------- */
+.toolbar, .metric, .zoombar, .journeybar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--chrome-radius); box-shadow: var(--chrome-shadow); }
+.journeybar { box-shadow: var(--chrome-shadow), 0 8px 24px rgba(35,42,51,.10); }
+.metric.bad { background: #fff6f6; border-color: #e7a2a6; box-shadow: 0 2px 0 #e7a2a6; }
+/* zoom bar as tall as the toolbar: 28px buttons in 5px padding (radius 8 + 5 = 13, concentric) */
+.zoombar { padding: 5px; }
+.zoombar button { height: 28px; border-radius: 8px; }
+/* KPI cards all as wide as the widest one */
+@media (min-width: 901px) {
+  .metrics { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+}
+/* KPIs + toolbar share the top edge only while both fit: first the toolbar turns to icons, then the KPIs drop below it */
+@container hud (max-width: 1320px) {
+  .toolbar .btn:not(.keep) { font-size: 0; gap: 0; padding: 0 8px; }
+  .toolbar .btn:not(.keep)::after { font-size: 11px; }
+}
+@container hud (max-width: 1100px) {
+  .metrics { top: 66px; }
+}
+
+/* ---------- line ends (Figma-style: none, line, triangle, reverse, circle, diamond) ---------- */
+.opath { color: var(--edge); }
+.opath.read { color: var(--edge-read, #9aa0a8); }
+.opath.busy { color: var(--edge-busy, #e09a2c); }
+.opath.fail { color: var(--danger); }
+.opath.sel, .opath.tcur { color: var(--accent); }
+.opath .head, .eshape .head { fill: currentColor; transition: opacity .2s; }
+.opath .head.open, .eshape .head.open { fill: none; stroke: currentColor; stroke-width: 1.8px; stroke-linecap: round; stroke-linejoin: round; }
+.edge { color: var(--edge); }
+.edge.read { color: var(--edge-read, #9aa0a8); }
+.edge.busy { color: var(--edge-busy, #e09a2c); }
+.edge.fail { color: var(--danger); }
+.edge.sel, .edge.tcur { color: var(--accent); }
+.eshape { position: absolute; top: -1px; width: 1px; height: 1px; overflow: visible; transition: left .55s var(--ease); }
+.lod-far .eshape { transform: scale(var(--lw)); transform-origin: 0 0; }

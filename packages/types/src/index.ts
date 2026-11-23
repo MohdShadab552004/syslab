@@ -122,6 +122,9 @@ export type EdgeMode = 'sync' | 'async';
 export type Protocol = 'REST' | 'gRPC' | 'WebSocket' | 'Webhook' | 'TCP' | 'Pub/Sub';
 export type EdgeOp = 'read' | 'write' | 'both';
 
+/** How a connection's end is drawn (Figma's line end options). */
+export type ArrowHead = 'none' | 'line' | 'triangle' | 'reverse' | 'circle' | 'diamond';
+
 export interface DesignEdge {
   id: string;
   from: string;
@@ -140,6 +143,10 @@ export interface DesignEdge {
   retries?: number;
   /** circuit breaker: stop calling a failing server for a while and fail fast instead */
   breaker?: boolean;
+  /** end drawn at the target (default triangle) */
+  head?: ArrowHead;
+  /** end drawn at the source (default none) */
+  tail?: ArrowHead;
 }
 
 export type GroupColor = 'blue' | 'green' | 'orange' | 'gray';

@@ -154,15 +154,18 @@ export interface JourneyBarProps {
   onPause: () => void;
   onStep: (delta: number) => void;
   onClose: () => void;
+  /** hide the bar: deselect the component */
+  onDismiss: () => void;
 }
 
 /** Plays the journey of the selected component: users → it → everything it calls, step by step. */
-export const JourneyBar = memo(function JourneyBar({ label, steps, idx, playing, caption, onPlay, onPause, onStep, onClose }: JourneyBarProps) {
+export const JourneyBar = memo(function JourneyBar({ label, steps, idx, playing, caption, onPlay, onPause, onStep, onClose, onDismiss }: JourneyBarProps) {
   return (
     <div className="journeybar" onPointerDown={(e) => e.stopPropagation()} role="region" aria-label={`Journey through ${label}`}>
       <div className="jtop">
         <span className="jtitle">Journey through {label}</span>
         {idx != null && <span className="jstep">Step {idx + 1} of {steps}</span>}
+        <button type="button" className="jclose" onClick={onDismiss} aria-label="Close" title="Close (Esc)"><Icon path={ICON.close} size={13} stroke={2.4} /></button>
       </div>
       <div className="jcap" aria-live="polite">{caption}</div>
       <div className="jbtns">

@@ -36,6 +36,7 @@ import { FlowPlayerBar, LessonTimeline } from '@/components/editor/BottomBars';
 import { ShareModal } from '@/components/editor/ShareModal';
 import { ShortcutsModal } from '@/components/editor/ShortcutsModal';
 import { MobileFabs, Sheet } from '@/components/editor/MobileSheets';
+import { MinimalBar } from '@/components/editor/MinimalBar';
 
 /** Design Lab editor. Hooks own all logic; this file only wires them to components. */
 export default function EditorPage() {
@@ -46,7 +47,8 @@ export default function EditorPage() {
 
   const view = useCanvasView();
   const handlers = useCanvasInteractions();
-  const camera = useCamera();
+  const clearSelection = useEditorStore((s) => s.actions.clearSelection);
+  const camera = useCamera(clearSelection);
   const shortcuts = useEditorShortcuts();
   const mobile = useMobilePanel();
   const chrome = useEditorChrome();
@@ -67,7 +69,7 @@ export default function EditorPage() {
   if (!boot.ready || !view || !metrics || !inspector || !player) return <div className="empty static center">Loading design…</div>;
 
   return (
-    <div className="app editor">
+    <div className={chrome.minimal ? 'app editor minimal' : 'app editor'}>
       <EditorHeader {...chrome.header} onSaveVersion={versions.onSave} onShare={share.onOpen} onHelp={shortcuts.openHelp} />
 
       <div className="main">
@@ -77,8 +79,16 @@ export default function EditorPage() {
         </Sheet>
 
         <Canvas view={view} handlers={handlers} camera={camera} dragging={dragging} onNoteText={(nid, text) => updateNote(nid, { text })}>
-          <MetricsBar metrics={metrics.metrics} />
-          <CanvasToolbar {...chrome.toolbar} />
+          {chrome.minimal ? (
+            <MinimalBar name={chrome.header.name} status={chrome.header.status} running={chrome.header.running}
+              onToggleRun={chrome.header.onToggleRun} onShare={share.onOpen} onRestore={chrome.header.onMinimize}
+              metrics={<MetricsBar metrics={metrics.metrics} />} toolbar={<CanvasToolbar {...chrome.toolbar} />} />
+          ) : (
+            <>
+              <MetricsBar metrics={metrics.metrics} />
+              <CanvasToolbar {...chrome.toolbar} />
+            </>
+          )}
           {chrome.connectHint && <ConnectHint text={chrome.connectHint} />}
           {chrome.recording && <RecordBar {...chrome.recording} />}
           {journeyBar && <JourneyBar {...journeyBar} />}

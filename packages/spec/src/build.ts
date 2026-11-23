@@ -92,6 +92,8 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       ...(cn.callsPerRequest && { calls: cn.callsPerRequest }),
       ...(cn.retries && { retries: cn.retries }),
       ...(cn.circuitBreaker && { breaker: true }),
+      ...(cn.arrowEnd && cn.arrowEnd !== 'triangle' && { head: cn.arrowEnd }),
+      ...(cn.arrowStart && cn.arrowStart !== 'none' && { tail: cn.arrowStart }),
     }));
     if ((cn.callsPerRequest || cn.retries || cn.circuitBreaker) && (a.kind === 'lb' || a.kind === 'queue')) warnings.push(`callsPerRequest / retries / circuitBreaker on ${cn.from} → ${cn.to} are ignored: a ${a.kind === 'lb' ? 'load balancer' : 'queue'} decides how traffic moves.`);
   });

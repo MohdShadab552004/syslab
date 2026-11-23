@@ -48,8 +48,8 @@
 .swatch.on { outline: 2px solid #303030; outline-offset: 2px; }
 .bar { height: 6px; border-radius: 4px; background: #e4e2db; overflow: hidden; display: inline-block; }
 .bar i { display: block; height: 100%; border-radius: 4px; transition: width .35s ease, background .3s; }
-.itabs { display: flex; gap: 4px; padding: 4px; background: var(--bg); border-radius: 12px; }
-.itab { flex: 1; height: 30px; border: 0; border-radius: 9px; background: none; font: 700 11.5px var(--font); color: var(--muted); cursor: pointer; }
+.itabs { display: flex; gap: 2px; padding: 4px; background: var(--bg); border-radius: 12px; }
+.itab { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 4px; border: 0; border-radius: 9px; background: none; font: 700 11px var(--font); color: var(--muted); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .itab:hover { color: var(--ink); }
 .itab.on { background: #fff; color: var(--ink); box-shadow: 0 -1px 0 0 #cfcdc5 inset, 0 0 0 1px rgba(0,0,0,.07) inset; }
 

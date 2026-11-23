@@ -52,3 +52,13 @@
 .tpsrow.head { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .tpsrow + .tpsrow { border-top: 1px dashed var(--line); }
 .tpsrow.bad span:last-child { color: var(--danger); }
+
+/* line end picker (Figma-style start / end points) */
+.arrowpick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.apick { height: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: #fff; color: var(--ink-2); cursor: pointer; box-shadow: 0 -1px 0 0 #cfcdc5 inset, 0 0 0 1px rgba(0,0,0,.07) inset; }
+.apick:hover { color: var(--ink); }
+.apick.on { background: #303030; color: #fff; box-shadow: 0 2px 0 #000; }
+.apick svg { overflow: visible; }
+.apick line { stroke: currentColor; stroke-width: 1.6px; }
+.apick .head { fill: currentColor; }
+.apick .head.open { fill: none; stroke: currentColor; stroke-width: 1.8px; stroke-linecap: round; stroke-linejoin: round; }

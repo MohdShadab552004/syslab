@@ -1,4 +1,4 @@
-import type { DesignDoc, DesignEdge, DesignNode, NodeKind, Shape } from '@syslab/types';
+import type { DesignDoc, DesignEdge, DesignNode, NodeKind, Shape, ArrowHead } from '@syslab/types';
 import {
   CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
@@ -101,7 +101,9 @@ export interface LineView {
   retract: boolean;
   tag?: LineTagView;
   /** curved or elbow line: SVG path data and arrowhead (x / y / len / ang are then unused) */
-  path?: { d: string; arrow: { x: number; y: number; ang: number } };
+  path?: { d: string; arrow: { x: number; y: number; ang: number }; start: { x: number; y: number; ang: number } };
+  /** straight line: where the source's rim is along the line (for a tail end) */
+  tailX: number;
 }
 
 export interface EdgeView {
@@ -128,6 +130,9 @@ export interface EdgeView {
   labelY: number;
   /** drag handles at both ends (selected edge only) */
   handles: { from: Point; to: Point } | null;
+  /** how the target end and the source end are drawn */
+  head: ArrowHead;
+  tail: ArrowHead;
 }
 
 /** Dashed line from the fixed end of a connection to the cursor while its other end is dragged. */
@@ -242,16 +247,19 @@ type RouteMode = ViewPrefs['route'];
 
 /** The routed path of a line, or null for a straight one. */
 function routeOf(mode: RouteMode, a: Point, b: Point, ends: Ends): Route | null {
-  if (mode === 'elbow') return elbowRoute(a, b, ends.toR);
+  if (mode === 'elbow') return elbowRoute(a, b, ends.toR, ends.fromR);
   if (mode === 'curve') return curveRoute(a, b, ends);
   return null;
 }
 
 function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false, mode: RouteMode = 'straight', ends?: Ends): LineView {
   const s = segment(a, b);
-  const lv: LineView = { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+  const lv: LineView = {
+    key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11),
+    tailX: Math.min(Math.max(0, ends?.fromR ?? 0), Math.max(0, s.len - 4)), packets: retract ? [] : pk, retract,
+  };
   const r = retract ? null : routeOf(mode, a, b, ends ?? { fromR: 0, toR: targetRadius + 2 });
-  if (r) lv.path = { d: r.d, arrow: r.arrow };
+  if (r) lv.path = { d: r.d, arrow: r.arrow, start: r.start };
   return lv;
 }
 
@@ -519,6 +527,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       labelX: Math.round(mid.x),
       labelY: Math.round(mid.y),
       handles,
+      head: e.head ?? 'triangle',
+      tail: e.tail ?? 'none',
     });
   }
 

@@ -14,6 +14,7 @@ export const SIZE_VALUES = ['2vCPU', '8vCPU', '16vCPU', '64vCPU', '192vCPU'] as 
 export const PROTOCOL_VALUES = ['REST', 'gRPC', 'WebSocket', 'Webhook', 'TCP', 'Pub/Sub'] as const;
 export const LB_ALGORITHM_VALUES = ['round_robin', 'weighted', 'least_connections', 'ip_hash'] as const;
 export const COLOR_VALUES = ['blue', 'green', 'orange', 'gray'] as const;
+export const ARROW_HEAD_VALUES = ['none', 'line', 'triangle', 'reverse', 'circle', 'diamond'] as const;
 
 const name = z.string().trim().min(1).max(60);
 
@@ -80,6 +81,8 @@ export const ConnectionSpec = z.object({
   callsPerRequest: z.number().int().min(1).max(20).optional().describe('Fan-out: every request through the caller makes this many calls here (e.g. an API that calls 3 services sets 1 on each). Without it, the caller\'s traffic is split across its connections by weight.'),
   retries: z.number().int().min(0).max(3).optional().describe('Times a failed call is retried. Hides short blips but multiplies load on an overloaded target (retry storm).'),
   circuitBreaker: z.boolean().optional().describe('Stop calling the target while it fails (fail fast) so it can recover.'),
+  arrowStart: z.enum(ARROW_HEAD_VALUES).optional().describe('How the line end at the caller is drawn (default none).'),
+  arrowEnd: z.enum(ARROW_HEAD_VALUES).optional().describe('How the line end at the target is drawn (default triangle).'),
 });
 
 export const GroupSpec = z.object({

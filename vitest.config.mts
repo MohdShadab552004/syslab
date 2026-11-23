@@ -41,6 +41,7 @@ export default defineConfig({
         'apps/web/src/lib/**/*.ts',
         'apps/web/src/hooks/editor/editor.store.ts',
         'apps/web/src/hooks/editor/useInspector.ts',
+        'apps/web/src/hooks/editor/ringView.ts',
         'apps/api/src/**/*.ts',
       ],
       exclude: [
