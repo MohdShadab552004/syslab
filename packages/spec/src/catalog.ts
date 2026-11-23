@@ -39,6 +39,7 @@ export const DESIGN_GUIDE = `How to describe a SysLab design:
 - Kafka is pub/sub: every worker connected to it gets every message (each worker = its own consumer group).
   SQS / RabbitMQ are work queues: workers share the messages. Override with queue.mode.
 - For a db, set database.readReplicas for read-heavy loads and database.shards for write-heavy loads.
+- Cassandra is a leaderless ring instead: set database.nodes, replicationFactor and consistency (one/quorum/all).
 - Latency follows queueing theory: a component gets slow well before 100% load if it has few workers.
 - Postgres/MySQL refuse connections past max_connections: every app/worker instance holds 10. Many
   replicas need database.maxConnections raised or a pooler (10000).

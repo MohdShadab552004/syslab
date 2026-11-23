@@ -122,6 +122,23 @@ the extra connections are refused and that share of queries fails. To fix it:
 
 MongoDB, Cassandra and DynamoDB have no such small cap.
 
+### Ring databases (Cassandra)
+
+Cassandra has no primary: [`ring.ts`](../packages/sim/src/ring.ts) models it as a consistent-hash ring of
+equal nodes. Every row lives on **RF** nodes (replication factor, default 3) and a request waits for
+**k** of them, set by the consistency level: ONE = 1, QUORUM = ⌊RF/2⌋ + 1, ALL = RF.
+
+| | Formula |
+|---|---|
+| Work per request | `read·k + write·RF` replica operations |
+| Capacity | `(nodes − failed) × per-node capacity / work`, so more nodes add capacity and a higher RF costs it |
+| Latency | ×1 ONE, ×1.15 QUORUM, ×1.4 ALL (waiting for the k-th fastest replica) + 0.5 ms coordinator hop |
+| Failures tolerated | `RF − k` nodes, e.g. 1 for RF 3 at QUORUM |
+| Rows unavailable | share of token ranges with more than `RF − k` replicas on failed nodes (hypergeometric); those requests fail |
+
+On the canvas the nodes sit in a circle around the database (up to 12 drawn), with gossip lines between
+them; failed nodes are grey. The *Ring cluster* card sets nodes, RF, consistency and failed nodes.
+
 ## 7. Cost (AWS list prices)
 
 [`pricing.ts`](../packages/sim/src/pricing.ts) prices every component the way AWS bills it: us-east-1 on-demand list prices,
@@ -131,7 +148,7 @@ rounded. A real quote comes from the AWS Pricing Calculator; these are realistic
 |---|---|
 | App, worker | EC2 per instance: 2 vCPU c6i.large, 8 m6i.2xlarge, 16 m6i.4xlarge, 64 m6i.16xlarge, 192 m7i.48xlarge |
 | Cache | ElastiCache node (×1.55 the EC2 price; Valkey ×1.24) |
-| Database | RDS (Postgres, MySQL ×1.78), DocumentDB (MongoDB ×1.8) or self-managed EC2, per shard × (1 + replicas), plus storage; DynamoDB per million reads / writes |
+| Database | RDS (Postgres, MySQL ×1.78), DocumentDB (MongoDB ×1.8) or self-managed EC2, per shard × (1 + replicas) (every ring node for Cassandra), plus storage; DynamoDB per million reads / writes |
 | Object storage | S3 GB-month + GET / PUT requests |
 | CDN | CloudFront GB out (tiered) + HTTPS requests |
 | Load balancer | ALB hour + LCUs, or an Nginx / HAProxy pair on EC2 |

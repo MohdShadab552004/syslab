@@ -1,6 +1,7 @@
 import type { DesignDoc, DesignNode, NodeKind } from '@syslab/types';
 import { SIZES } from './catalog';
 import { dbConfig, queueConfig } from './factory';
+import { isRingDb, ringConfig } from './ring';
 
 /**
  * Cloud cost model: AWS us-east-1 on-demand list prices (USD), rounded. Real bills depend on
@@ -127,7 +128,7 @@ export function priceNode(n: DesignNode, p: PriceInput): NodePrice {
       return { monthly: month(inst.hourly * premium) * p.reps, category: 'cache', detail: `ElastiCache ${fmtN(p.reps, `cache.${inst.type}`)}` };
     }
     case 'db': {
-      const D = dbConfig(n), servers = D.shards * (1 + D.replicas);
+      const D = dbConfig(n), servers = isRingDb(n) ? ringConfig(n).nodes : D.shards * (1 + D.replicas);
       if (tech(n) === 'DynamoDB') {
         const writes = perMonth(p.rps * (1 - p.read)) / 1e6, reads = perMonth(p.rps * p.read) / 1e6;
         return {

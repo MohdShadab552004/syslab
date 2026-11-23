@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
 import {
-  CACHE_HIT, DEFAULT_ASSET_KB, DEFAULT_RESP_KB, DEFAULT_STORAGE_GB, GROUP_COLORS, ICONS, KINDS, sizesOf, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
+  CACHE_HIT, RING_MAX_NODES, RING_MIN_NODES, isRingDb, ringConfig, toleratedFailures, DEFAULT_ASSET_KB, DEFAULT_RESP_KB, DEFAULT_STORAGE_GB, GROUP_COLORS, ICONS, KINDS, sizesOf, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
 } from '@syslab/sim';
 import { canRewire, useEditorStore, type EdgeEnd, type EditorActions } from './editor.store';
@@ -61,6 +61,15 @@ export interface NodeInspectorView {
     writeLoad: string;
     readLoad: string;
     conns: { text: string; bad: boolean; options: OptionView[]; hint: string } | null;
+    /** ring databases (Cassandra): nodes, replication factor, consistency, failed nodes */
+    ring: {
+      nodes: StepperView;
+      rf: StepperView;
+      consistency: OptionView[];
+      down: StepperView;
+      status: { text: string; bad: boolean };
+      hint: string;
+    } | null;
   } | null;
   perf: {
     note: string;
@@ -228,6 +237,23 @@ export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: Edito
         : ({ time: `One partition per period of ${pkey}. Old months can be archived or dropped instantly.`, list: `Rows grouped by a value of ${pkey}, like country or status.`, hash: `Rows spread across ${D.parts} partitions by hash(${pkey}).` }[D.partition]) + ` Queries that filter on ${pkey} scan less, ~30% faster.`,
       writeLoad: loadView(dl.w, n.down).pct,
       readLoad: loadView(dl.r, n.down).pct,
+      ring: isRingDb(n) ? (() => {
+        const r = sim.ring?.[id] ?? { ...ringConfig(n), unavailable: 0 };
+        const tol = toleratedFailures(r), CL = r.cl.toUpperCase();
+        return {
+          // a new node joins the ring and takes over a share of every other node's token ranges
+          nodes: { value: r.nodes, onDec: () => a.updateDb(id, { nodes: Math.max(RING_MIN_NODES, r.nodes - 1), downNodes: Math.min(r.down, r.nodes - 1) }), onInc: () => a.updateDb(id, { nodes: Math.min(RING_MAX_NODES, r.nodes + 1) }) },
+          rf: { value: r.rf, onDec: () => a.updateDb(id, { rf: Math.max(1, r.rf - 1) }), onInc: () => a.updateDb(id, { rf: Math.min(r.nodes, 5, r.rf + 1) }) },
+          consistency: opts<'one' | 'quorum' | 'all'>([['one', 'ONE', 'fastest, may read stale'], ['quorum', 'QUORUM', 'majority, consistent'], ['all', 'ALL', 'every replica, fragile']], r.cl, (v) => a.updateDb(id, { consistency: v })),
+          down: { value: r.down, onDec: () => a.updateDb(id, { downNodes: Math.max(0, r.down - 1) }), onInc: () => a.updateDb(id, { downNodes: Math.min(r.nodes, r.down + 1) }) },
+          status: r.unavailable > 0
+            ? { text: `${Math.max(1, Math.round(r.unavailable * 100))}% of rows unavailable`, bad: true }
+            : { text: tol > 0 ? `survives ${tol} node${tol === 1 ? '' : 's'} down` : 'no node may fail', bad: tol === 0 && r.down === 0 ? false : r.down > tol },
+          hint: `Every row lives on ${r.rf} of the ${r.nodes} nodes (replication factor ${r.rf}). ${CL} waits for ${r.k} of them, so up to ${tol} node${tol === 1 ? '' : 's'} can fail without losing reads or writes.`
+            + (r.down > 0 ? ` ${r.down} node${r.down === 1 ? ' is' : 's are'} down now${r.unavailable > 0 ? `: rows whose replicas include too many failed nodes can't reach ${CL} and fail.` : ', and every row still has enough live replicas.'}` : '')
+            + ' Writes cost RF node operations, reads cost the consistency level, so more nodes add capacity and a higher RF costs it.',
+        };
+      })() : null,
       conns: (() => {
         const limitPer = dbConnLimit(n);
         if (!limitPer) return null;

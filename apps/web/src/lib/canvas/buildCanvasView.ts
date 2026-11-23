@@ -3,6 +3,7 @@ import {
   CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
   isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
+  RING_MAX_SHOWN, isRingDb, ringConfig, ringLayout,
 } from '@syslab/sim';
 import type { FlowPlayback, JourneyPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
@@ -132,7 +133,8 @@ export interface EdgeView {
 /** Dashed line from the fixed end of a connection to the cursor while its other end is dragged. */
 export interface RewireView { x: number; y: number; len: number; ang: number; dotX: number; dotY: number; valid: boolean }
 
-export interface ReplicationLineView extends LineView { sync: boolean }
+/** sync: synchronous replica; gossip: the chatter between the nodes of a ring database */
+export interface ReplicationLineView extends LineView { sync: boolean; gossip?: boolean }
 
 export interface FlowSegmentView { key: string; x: number; y: number; len: number; ang: number; state: 'past' | 'cur' | 'next' | 'rec'; token: boolean }
 
@@ -186,6 +188,8 @@ export interface CanvasUi {
 }
 
 const LETTERS = 'ABCDEFGH';
+/** nodes of a ring database are drawn smaller than the database itself */
+export const RING_NODE_SCALE = 0.6;
 const GEO = ['India', 'US', 'EU', 'APAC'];
 
 function loadPill(v: number, down: boolean): LoadPillView {
@@ -546,6 +550,19 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
     }));
   }
 
+  for (const n of doc.nodes) {
+    if (!isRingDb(n) || ownerOf('node', n.id)) continue;
+    const pts = ringLayout(n), k = KINDS[n.kind], rr = (Math.min(k.w, k.h) / 2 - 4) * RING_NODE_SCALE;
+    const live = ui.running && !n.down;
+    const pairs: [number, number][] = pts.map((_, i) => [i, (i + 1) % pts.length]);
+    if (pts.length >= 6) pts.forEach((_, i) => { if (i % 2 === 0) pairs.push([i, (i + 2) % pts.length]); });
+    pairs.forEach(([a, b], j) => {
+      const key = `${n.id}-g${j}`;
+      const pk: PacketView[] = live ? [{ key: `${key}-0`, dur: '3.20', delay: (-(j * 0.7) % 3.2).toFixed(2), fail: false }] : [];
+      replication.push({ ...line(key, pts[a], pts[b], rr, pk), sync: false, gossip: true });
+    });
+  }
+
   /* ---------- flow overlay ---------- */
   const flow: FlowSegmentView[] = [];
   if (flowShown) {
@@ -669,7 +686,27 @@ function buildNode(
     });
   }
 
-  if (n.kind === 'db') {
+  if (n.kind === 'db' && isRingDb(n)) {
+    // Leaderless ring: the database in the middle is the coordinator the callers talk to; its
+    // nodes sit around it, the first `down` of them failed.
+    const r = sim.ring?.[n.id] ?? { ...ringConfig(n), unavailable: 0 };
+    const pts = ringLayout(n), node = loadPill(sim.dbLoad[n.id]?.w ?? ld, n.down);
+    load = node;
+    below = `${n.label} · ring of ${r.nodes} · RF ${r.rf} · ${r.cl.toUpperCase()}`;
+    pts.forEach((p, i) => {
+      const dead = n.down || i < r.down;
+      extras.push({
+        key: `${n.id}-n${i}`, dx: p.x - p0.x, dy: p.y - p0.y, shape: 'db', w: k.w, h: k.h, scale: RING_NODE_SCALE,
+        colors: dead ? DOWN_COLORS : colors, icon: ICONS.db, label: '', bands: false, load: dead ? loadPill(0, true) : node,
+        below: i === 0 && r.nodes > RING_MAX_SHOWN ? { text: `+${r.nodes - RING_MAX_SHOWN} more nodes`, info: true } : null, draining: false,
+      });
+    });
+    if (!n.down && r.down > 0) {
+      warn = r.unavailable > 0
+        ? `${r.down} of ${r.nodes} nodes down · ${Math.max(1, Math.round(r.unavailable * 100))}% of rows below ${r.cl.toUpperCase()}`
+        : `${r.down} of ${r.nodes} nodes down · still ${r.cl.toUpperCase()}`;
+    }
+  } else if (n.kind === 'db') {
     const D = dbConfig(n);
     bands = D.partition !== 'none';
     const partTxt = bands ? `${D.parts} partitions by ${D.partKey}` : '';

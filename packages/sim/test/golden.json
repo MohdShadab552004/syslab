@@ -11,7 +11,7 @@
       "Shortener API": 0.195,
       "Key Generator": 0.284,
       "Link Cache": 0.031,
-      "Link Store": 0.004
+      "Link Store": 0.005
     }
   },
   "url@1x": {
@@ -26,7 +26,7 @@
       "Shortener API": 0.391,
       "Key Generator": 0.568,
       "Link Cache": 0.061,
-      "Link Store": 0.007
+      "Link Store": 0.01
     }
   },
   "url@3x": {
@@ -41,7 +41,7 @@
       "Shortener API": 0.586,
       "Key Generator": 1.705,
       "Link Cache": 0.184,
-      "Link Store": 0.022
+      "Link Store": 0.031
     }
   },
   "chat@0.5x": {
@@ -50,7 +50,7 @@
     "p95": 74.862,
     "p99": 97.34,
     "errorRate": 0,
-    "cost": 17107.297,
+    "cost": 31315.425,
     "load": {
       "WS Load Balancer": 0.01,
       "WebSocket Gateway": 0.025,
@@ -58,7 +58,7 @@
       "Presence": 0.008,
       "Message Bus": 0.003,
       "Fan-out Worker": 0.156,
-      "Messages DB": 0.029
+      "Messages DB": 0.026
     }
   },
   "chat@1x": {
@@ -67,7 +67,7 @@
     "p95": 74.862,
     "p99": 97.34,
     "errorRate": 0,
-    "cost": 19944.458,
+    "cost": 34152.586,
     "load": {
       "WS Load Balancer": 0.021,
       "WebSocket Gateway": 0.05,
@@ -75,7 +75,7 @@
       "Presence": 0.015,
       "Message Bus": 0.006,
       "Fan-out Worker": 0.313,
-      "Messages DB": 0.058
+      "Messages DB": 0.052
     }
   },
   "chat@3x": {
@@ -84,7 +84,7 @@
     "p95": 74.862,
     "p99": 97.34,
     "errorRate": 0,
-    "cost": 34639.872,
+    "cost": 48848,
     "load": {
       "WS Load Balancer": 0.063,
       "WebSocket Gateway": 0.15,
@@ -92,7 +92,7 @@
       "Presence": 0.045,
       "Message Bus": 0.018,
       "Fan-out Worker": 0.469,
-      "Messages DB": 0.174
+      "Messages DB": 0.156
     }
   },
   "ecom@0.5x": {

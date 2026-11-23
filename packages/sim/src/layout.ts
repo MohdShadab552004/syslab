@@ -1,6 +1,7 @@
 import type { DesignNode } from '@syslab/types';
 import { KINDS, SIZE_SCALE } from './catalog';
 import { dbConfig } from './factory';
+import { isRingDb } from './ring';
 import type { SimResult } from './simulate';
 
 export interface Point { x: number; y: number }
@@ -16,7 +17,7 @@ export function isFanned(n: DesignNode, sim: SimResult): boolean {
 }
 
 export function isDbCluster(n: DesignNode): boolean {
-  if (n.kind !== 'db') return false;
+  if (n.kind !== 'db' || isRingDb(n)) return false;
   const D = dbConfig(n);
   return D.shards > 1 || D.replicas > 0;
 }

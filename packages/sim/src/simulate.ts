@@ -5,6 +5,7 @@ import { balance, type Backend } from './balancer';
 import { SERVICE_P95, SERVICE_P99, queueTimes, workersFor } from './queueing';
 import { techProfile } from './techs';
 import { egressCost, priceNode, sizesOf, type NodePrice } from './pricing';
+import { CONSISTENCY_LATENCY, isRingDb, ringCapacity, ringConfig, unavailableShare, type RingConfig } from './ring';
 
 /** Mutable runtime state that lives on the client, never persisted. */
 export interface Runtime {
@@ -92,6 +93,8 @@ export interface SimResult {
   lbBackends: Record<string, LbBackendStat[]>;
   /** per-queue backlog */
   queue: Record<string, QueueStat>;
+  /** ring databases: their ring and the share of rows that cannot reach the consistency level */
+  ring: Record<string, RingConfig & { unavailable: number }>;
   /** offline caches whose reads were sent on to the database instead of failing */
   cacheBypass: Record<string, boolean>;
   /** live caches backed by a database: false while every database behind it is offline (misses cannot refill) */
@@ -176,6 +179,10 @@ export function serviceTime(n: DesignNode): number {
   const m = n.measured?.ms;
   if (m && m > 0) return m;
   let base = KINDS[n.kind].lat * techProfile(n).lat;
+  if (n.kind === 'db' && isRingDb(n)) {
+    // a coordinator node forwards to replicas and waits for k of them
+    return base * CONSISTENCY_LATENCY[ringConfig(n).cl] + 0.5;
+  }
   if (n.kind === 'db') {
     const D = dbConfig(n);
     if (D.partition !== 'none') base *= 0.7;
@@ -268,7 +275,10 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
   /** a dead read-through cache passes traffic on; any other dead node fails it */
   const passesWhenDown = (t: DesignNode) => t.kind === 'cache' && out.get(t.id)!.length > 0;
   /** rps a target node could take right now (0 when offline) */
-  const capOf = (t: DesignNode) => (t.down ? 0 : t.kind === 'users' ? Infinity : per[t.id] * reps[t.id] * (t.kind === 'db' ? dbConfig(t).shards : 1));
+  const capOf = (t: DesignNode) => (t.down ? 0 : t.kind === 'users' ? Infinity
+    : isRingDb(t) ? ringCapacity(ringConfig(t), per[t.id], read)
+    : per[t.id] * reps[t.id] * (t.kind === 'db' ? dbConfig(t).shards : 1));
+  const ring: SimResult['ring'] = {};
 
   for (const n of nodes) {
     const k = KINDS[n.kind];
@@ -300,7 +310,17 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     let c = n.kind === 'users' ? Infinity : per[id] * reps[id];
     /** share of requests that get a database connection at all */
     let connOk = 1;
-    if (n.kind === 'db') {
+    if (n.kind === 'db' && isRingDb(n)) {
+      // Ring: writes go to every replica, reads ask k of them, failed nodes serve nothing, and rows
+      // whose live replicas are fewer than the consistency level fail.
+      const r = ringConfig(n);
+      c = ringCapacity(r, per[id], read);
+      const unavailable = unavailableShare(r.nodes, r.rf, r.k, r.down);
+      ring[id] = { ...r, unavailable };
+      const lp = c > 0 ? inn / c : inn > 0 ? 9 : 0;
+      dbLoad[id] = { w: lp, r: lp };
+      connOk = 1 - unavailable;
+    } else if (n.kind === 'db') {
       const D = dbConfig(n), base = per[id] * D.shards, R = D.replicas, wr = 1 - read, rd = read;
       if (R > 0) {
         c = Math.min(wr > 0 ? base / wr : Infinity, rd > 0 ? (base * R) / rd : Infinity);
@@ -594,7 +614,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
   return {
     users, rps, byId, inflow, cap, load, edgeRps, reps, sizeIdx, desiredReps, desiredSize,
     needsLB, dbLoad, repLoad, edgeRepRps, lbBackends, queue, cacheBypass, cacheRefill, cacheHit,
-    perInstance: per, service, workers, waitMs, dropFrac, dbConns, retryAmp, breakerOpen,
+    perInstance: per, service, workers, waitMs, dropFrac, dbConns, retryAmp, breakerOpen, ring,
     nodeCost, nodeCostDetail, egress, nodeLatency, onSlowPath, errorRate, fastFailRate, meanLatency, p95, p99, cost,
   };
 }
