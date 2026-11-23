@@ -120,18 +120,34 @@
 /* ---------- Minimize UI (Ctrl+Shift+\): only the canvas, with two floating pills ---------- */
 .minibtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; flex: none; }
 .minibtn:hover { background: var(--surface-2); color: var(--ink); }
-.minibar { display: none; }
+.minirow { display: none; }
 @media (min-width: 901px) {
   .app.minimal, .app.minimal:has(.timeline.compact) { --top-h: 0px; --bottom-h: 0px; }
   .app.minimal .top, .app.minimal .palette, .app.minimal .inspector, .app.minimal .timeline { display: none; }
-  .app.minimal .minibar { position: absolute; top: 14px; z-index: 40; display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 8px;
-    background: var(--surface); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 2px 0 var(--line), 0 8px 24px rgba(0,0,0,.06); }
-  .app.minimal .minibar.left { left: 16px; max-width: 40%; }
-  .app.minimal .minibar.right { right: 16px; gap: 10px; padding: 0 8px 0 12px; }
+  /* one row: name pill, metrics, toolbar (pushed right), run controls; wraps when it cannot fit */
+  .app.minimal .minirow { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; pointer-events: none; }
+  .app.minimal .minirow > * { pointer-events: auto; }
+  .app.minimal .minirow .metrics { position: static; pointer-events: none; }
+  .app.minimal .miniend { margin-left: auto; display: flex; align-items: center; gap: 10px; pointer-events: none; }
+  .app.minimal .miniend > * { pointer-events: auto; }
+  .app.minimal .minirow .toolbar { position: static; }
+  .app.minimal .minibar { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 8px; flex: none;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 2px 0 var(--line); }
+  .app.minimal .minibar.left { max-width: 280px; }
+  .app.minimal .minibar.right { gap: 8px; padding: 0 6px 0 12px; }
   .app.minimal .mininame { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 0 4px; }
-  /* the canvas overlays move below the pills */
-  .app.minimal .metrics, .app.minimal .toolbar { top: 74px; }
 }
 @media (max-width: 900px) {
   .editor .top .minimize { display: none; }
+}
+
+/* Minimize UI row: tighten as the canvas narrows so it stays on one line as long as possible */
+@container hud (max-width: 1910px) {
+  .app.minimal .metric { min-width: 0; padding: 8px 10px; }
+  .app.minimal .mval { font-size: 15px; }
+  .app.minimal .minibar .stext { display: none; }
+}
+@container hud (max-width: 1640px) {
+  .app.minimal .toolbar .btn:not(.keep) { font-size: 0; gap: 0; padding: 0 8px; }
+  .app.minimal .toolbar .btn:not(.keep)::after { font-size: 11px; }
 }

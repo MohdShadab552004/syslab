@@ -79,17 +79,21 @@ export default function EditorPage() {
         </Sheet>
 
         <Canvas view={view} handlers={handlers} camera={camera} dragging={dragging} onNoteText={(nid, text) => updateNote(nid, { text })}>
-          <MetricsBar metrics={metrics.metrics} />
-          <CanvasToolbar {...chrome.toolbar} />
+          {chrome.minimal ? (
+            <MinimalBar name={chrome.header.name} status={chrome.header.status} running={chrome.header.running}
+              onToggleRun={chrome.header.onToggleRun} onShare={share.onOpen} onRestore={chrome.header.onMinimize}
+              metrics={<MetricsBar metrics={metrics.metrics} />} toolbar={<CanvasToolbar {...chrome.toolbar} />} />
+          ) : (
+            <>
+              <MetricsBar metrics={metrics.metrics} />
+              <CanvasToolbar {...chrome.toolbar} />
+            </>
+          )}
           {chrome.connectHint && <ConnectHint text={chrome.connectHint} />}
           {chrome.recording && <RecordBar {...chrome.recording} />}
           {journeyBar && <JourneyBar {...journeyBar} />}
           {!view.nodes.length && <EmptyCanvas />}
           <EventsFeed events={chrome.events} />
-          {chrome.minimal && (
-            <MinimalBar name={chrome.header.name} status={chrome.header.status} running={chrome.header.running}
-              onToggleRun={chrome.header.onToggleRun} onShare={share.onOpen} onRestore={chrome.header.onMinimize} />
-          )}
         </Canvas>
 
         <Sheet title="Details" open={mobile.panel === 'inspector'} onClose={mobile.close}>
