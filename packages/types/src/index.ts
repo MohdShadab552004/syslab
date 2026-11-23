@@ -44,10 +44,20 @@ export interface DbConfig {
   nodes: number;
   /** ring databases: copies of every row (replication factor); 0 = 3 */
   rf: number;
-  /** ring databases: replicas a read or write waits for */
+  /** ring databases: replicas a read waits for */
   consistency: RingConsistency;
+  /** ring databases: replicas a write waits for (every write still goes to all RF replicas) */
+  writeConsistency: RingConsistency;
   /** ring databases: nodes currently failed (to rehearse outages) */
   downNodes: number;
+  /** ring databases: % of traffic on the single hottest partition key (0 = evenly spread) */
+  hotShare: number;
+  /** ring databases: buckets the hot key is salted into (1 = no bucketing) */
+  buckets: number;
+  /** ring databases: average partition size, MB (over 100 MB slows reads) */
+  partitionMb: number;
+  /** ring databases: send a read to another replica when the first is slower than its p99 */
+  specRetry: boolean;
 }
 
 /**

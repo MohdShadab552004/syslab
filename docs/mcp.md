@@ -61,6 +61,9 @@ Realism fields (all optional):
 | `measured: { requestsPerSecond, latencyMs }` | component | Numbers from a real load test; they replace the estimates |
 | `database.maxConnections` | db | Client connections per server (10000 ≈ a pooler like PgBouncer) |
 | `database.nodes`, `replicationFactor`, `consistency`, `failedNodes` | db (Cassandra) | Ring of 3–24 equal nodes; copies of every row (default 3); replicas a request waits for (`one` / `quorum` / `all`); nodes down to rehearse an outage |
+| `database.writeConsistency` | db (Cassandra) | Write level when it differs from reads; R + W > RF keeps reads consistent |
+| `database.hotKeyShare`, `keyBuckets` | db (Cassandra) | % of traffic on the hottest partition key (0–90); buckets it is salted into (1–64) |
+| `database.partitionMb`, `speculativeRetry` | db (Cassandra) | Average partition size (default 10, over 100 slows reads); re-send slow reads (default true) |
 | `cache.ttlSeconds` | cache | How long keys live if the database behind it goes down |
 | `queue.mode` | queue | `pubsub` (every subscriber gets every message; Kafka default) or `work` (workers share messages) |
 | `avgResponseKb`, `avgFileKb`, `storageGb` | design | Sizes that drive the cost: API reply size, CDN file size, data per database server |

@@ -27,7 +27,7 @@ export function useMetrics() {
       { key: 'p95', label: `P95 · SLO ${slo} ms`, value: sim.rps > 0 ? fmtMs(sim.p95) : '—', bad: sim.rps > 0 && sim.p95 > slo, icon: ICON.latency,
         tip: sim.rps > 0 ? `Slowest path: mean ${fmtMs(sim.meanLatency)} · P95 ${fmtMs(sim.p95)} · P99 ${fmtMs(sim.p99)}` : undefined },
       { key: 'err', label: 'Errors', value: (sim.errorRate * 100).toFixed(sim.errorRate > 0 && sim.errorRate < 0.1 ? 1 : 0) + '%', bad: sim.errorRate > 0.0005, icon: ICON.errors,
-        tip: sim.fastFailRate > 0.0005 ? `${(sim.fastFailRate * 100).toFixed(1)}% failed fast at an open circuit breaker; the rest timed out` : undefined },
+        tip: sim.fastFailRate > 0.0005 ? `${(sim.fastFailRate * 100).toFixed(1)}% failed fast (open circuit breaker or not enough live replicas); the rest timed out` : undefined },
       { key: 'tput', label: 'Throughput', value: fmtCompact(sim.rps * (1 - sim.errorRate)) + ' rps', bad: false, icon: ICON.tput },
       { key: 'cost', label: 'Cost / month', value: fmtMoney(sim.cost), bad: false, icon: ICON.cost },
     ];

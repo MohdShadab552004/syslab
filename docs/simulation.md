@@ -125,19 +125,29 @@ MongoDB, Cassandra and DynamoDB have no such small cap.
 ### Ring databases (Cassandra)
 
 Cassandra has no primary: [`ring.ts`](../packages/sim/src/ring.ts) models it as a consistent-hash ring of
-equal nodes. Every row lives on **RF** nodes (replication factor, default 3) and a request waits for
-**k** of them, set by the consistency level: ONE = 1, QUORUM = ⌊RF/2⌋ + 1, ALL = RF.
+equal nodes. Every row lives on **RF** nodes (replication factor, default 3). A read waits for **R**
+replicas and a write for **W**, each set by its own consistency level: ONE = 1, QUORUM = ⌊RF/2⌋ + 1,
+ALL = RF. Every write still goes to all RF replicas; W only sets how many acks it waits for.
 
 | | Formula |
 |---|---|
-| Work per request | `read·k + write·RF` replica operations |
-| Capacity | `(nodes − failed) × per-node capacity / work`, so more nodes add capacity and a higher RF costs it |
-| Latency | ×1 ONE, ×1.15 QUORUM, ×1.4 ALL (waiting for the k-th fastest replica) + 0.5 ms coordinator hop |
-| Failures tolerated | `RF − k` nodes, e.g. 1 for RF 3 at QUORUM |
-| Rows unavailable | share of token ranges with more than `RF − k` replicas on failed nodes (hypergeometric); those requests fail |
+| Work per request | `read·R·p·(1.01 with speculative retry) + write·RF` replica operations, `p` the wide-partition penalty |
+| Hot key | share `h` of traffic lands on one key's replicas: `m = min(live, RF × buckets)` nodes |
+| Busiest node | `ops × (h/m + (1 − h)/live) / per-node capacity`; capacity is the traffic that fills it |
+| Dropped (timeouts) | operations above 100% on each node, as a share of all operations; only requests landing there fail |
+| Latency | `read·L(R)·p + write·L(W)`, L = ×1 ONE, ×1.15 QUORUM, ×1.4 ALL, + 0.5 ms coordinator hop |
+| Wide partitions | partition size / buckets over 100 MB: `p = 1 + (MB − 100)/200` (300 MB → reads ×2) |
+| Speculative retry | on by default (Cassandra's 99p): ~1% more reads, P99 tail cut to ~1.1 × P95 |
+| Failures tolerated | `RF − max(R, W)` nodes, e.g. 1 for RF 3 at QUORUM |
+| Unavailable | reads and writes apart: token ranges with more than `RF − k` replicas on failed nodes (hypergeometric). These fail **at once** (UnavailableException), so they don't drag P95 to the timeout |
+| Stale reads | when `R + W ≤ RF`: chance a read misses the write, `C(RF − W, R) / C(RF, R)` (ONE/ONE on RF 3 = 67%) |
 
 On the canvas the nodes sit in a circle around the database (up to 12 drawn), with gossip lines between
-them; failed nodes are grey. The *Ring cluster* card sets nodes, RF, consistency and failed nodes.
+them. Failed nodes are grey, then the hot key's replicas, coloured by their own load. The warning names
+the worst of: failed nodes, a hot partition, wide partitions, stale reads. The *Ring cluster* card sets
+nodes, RF, read and write levels and failed nodes. The *Partitions & load* card sets the hot key share,
+buckets, partition size and speculative retry. It also shows the busiest node's ReadStage /
+MutationStage (ops, pending by Little's law, dropped) and UnavailableException / timeouts per second.
 
 ## 7. Cost (AWS list prices)
 
