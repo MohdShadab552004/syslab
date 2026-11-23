@@ -3,6 +3,7 @@ import { cx } from '@/lib/utils/cx';
 import type { EdgeView, FlowSegmentView, ReplicationLineView, RewireView } from '@/lib/canvas/buildCanvasView';
 import type { EdgeEnd } from '@/hooks/editor/editor.store';
 import { Line } from './Line';
+import { ArrowAt } from './ArrowShape';
 
 const edgeClass = (e: EdgeView) => cx(e.async && 'async', e.selected && 'sel', e.dim && 'dim', e.hl && 'hl', e.read && 'read', e.tone !== 'ok' && e.tone);
 
@@ -18,13 +19,14 @@ export const EdgeLayer = memo(function EdgeLayer({ edges, replication, onHover, 
   const paths = edges.flatMap((e) => e.lines.filter((l) => l.path).map((l) => ({ e, l })));
   return (
     <>
-      {edges.map((e) => e.lines.filter((l) => !l.path).map((l) => <Line key={l.key} v={l} className={edgeClass(e)} weight={e.weight} />))}
+      {edges.map((e) => e.lines.filter((l) => !l.path).map((l) => <Line key={l.key} v={l} className={edgeClass(e)} weight={e.weight} head={e.head} tail={e.tail} />))}
       {paths.length > 0 && (
         <svg className="opaths" aria-hidden="true">
           {paths.map(({ e, l }) => (
             <g key={l.key} className={cx('opath', edgeClass(e))} style={{ '--ew': e.weight } as React.CSSProperties}>
               <path d={l.path!.d} />
-              <polygon points="0,-5.5 11,0 0,5.5" transform={`translate(${l.path!.arrow.x} ${l.path!.arrow.y}) rotate(${l.path!.arrow.ang}) translate(-11 0)`} />
+              <ArrowAt kind={e.head} {...l.path!.arrow} />
+              <ArrowAt kind={e.tail} {...l.path!.start} />
               {(onHover || onPick) && (
                 <path className="hit" d={l.path!.d}
                   onPointerEnter={onHover ? () => onHover(e.id) : undefined}

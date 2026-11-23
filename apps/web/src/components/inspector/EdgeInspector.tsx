@@ -1,5 +1,22 @@
 import { Button, Card, Hint, ICON, OptionGroup, Row, SectionLabel, SelectField, Stepper, Switch, TextField } from '@/components/ui';
-import type { EdgeInspectorView } from '@/hooks/editor/useInspector';
+import type { ArrowPickView, EdgeInspectorView } from '@/hooks/editor/useInspector';
+import { ArrowShape } from '@/components/canvas/ArrowShape';
+
+/** A row of line-end previews, like Figma's start / end point menus. */
+function ArrowPicker({ label, items, flip }: { label: string; items: ArrowPickView[]; flip?: boolean }) {
+  return (
+    <div className="arrowpick" role="radiogroup" aria-label={label}>
+      {items.map((o) => (
+        <button key={o.key} type="button" role="radio" aria-checked={o.active} aria-label={o.label} title={o.label} className={o.active ? 'apick on' : 'apick'} onClick={o.onSelect}>
+          <svg viewBox="-2 -8 34 16" width="34" height="16" aria-hidden="true">
+            <line x1="0" y1="0" x2="30" y2="0" />
+            <g transform={flip ? 'translate(0 0) rotate(180)' : 'translate(30 0)'}><ArrowShape kind={o.key} /></g>
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function EdgeInspector({ v }: { v: EdgeInspectorView }) {
   return (
@@ -43,6 +60,13 @@ export function EdgeInspector({ v }: { v: EdgeInspectorView }) {
           <Hint>{v.resilience.hint}</Hint>
         </Card>
       )}
+      <Card>
+        <div className="row"><SectionLabel>Line ends</SectionLabel><Button size="sm" icon={ICON.reverse} onClick={v.arrows.onSwap} title="Swap the two ends (traffic direction stays)">Swap</Button></div>
+        <div className="flab">Start</div>
+        <ArrowPicker label="Start of the line" items={v.arrows.start} flip />
+        <div className="flab">End</div>
+        <ArrowPicker label="End of the line" items={v.arrows.end} />
+      </Card>
       <div className="actions">
         <Button icon={ICON.reverse} onClick={v.onReverse}>Reverse</Button>
         <Button variant="danger" onClick={v.onDelete}>Delete</Button>

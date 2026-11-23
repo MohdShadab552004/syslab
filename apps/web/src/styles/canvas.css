@@ -356,3 +356,19 @@
 @container hud (max-width: 1100px) {
   .metrics { top: 66px; }
 }
+
+/* ---------- line ends (Figma-style: none, line, triangle, reverse, circle, diamond) ---------- */
+.opath { color: var(--edge); }
+.opath.read { color: var(--edge-read, #9aa0a8); }
+.opath.busy { color: var(--edge-busy, #e09a2c); }
+.opath.fail { color: var(--danger); }
+.opath.sel, .opath.tcur { color: var(--accent); }
+.opath .head, .eshape .head { fill: currentColor; transition: opacity .2s; }
+.opath .head.open, .eshape .head.open { fill: none; stroke: currentColor; stroke-width: 1.8px; stroke-linecap: round; stroke-linejoin: round; }
+.edge { color: var(--edge); }
+.edge.read { color: var(--edge-read, #9aa0a8); }
+.edge.busy { color: var(--edge-busy, #e09a2c); }
+.edge.fail { color: var(--danger); }
+.edge.sel, .edge.tcur { color: var(--accent); }
+.eshape { position: absolute; top: -1px; width: 1px; height: 1px; overflow: visible; transition: left .55s var(--ease); }
+.lod-far .eshape { transform: scale(var(--lw)); transform-origin: 0 0; }

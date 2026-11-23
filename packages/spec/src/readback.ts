@@ -84,6 +84,8 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
       ...(e.calls && { callsPerRequest: e.calls }),
       ...(e.retries && { retries: e.retries }),
       ...(e.breaker && { circuitBreaker: true }),
+      ...(e.tail && e.tail !== 'none' && { arrowStart: e.tail }),
+      ...(e.head && e.head !== 'triangle' && { arrowEnd: e.head }),
     })),
     groups: doc.groups.map((g) => ({ name: g.label, color: g.color, members: membersOf(doc, g).map((id) => label.get(id)!), ...(g.collapsed && { collapsed: true }) }))
       .filter((g) => g.members.length > 0),

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
+import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy, ArrowHead } from '@syslab/types';
 import {
   CACHE_HIT, isRingDb, DEFAULT_ASSET_KB, DEFAULT_RESP_KB, DEFAULT_STORAGE_GB, GROUP_COLORS, ICONS, KINDS, sizesOf, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
@@ -123,9 +123,18 @@ export interface EdgeInspectorView {
   share: string;
   rps: string;
   onSlowPath: string;
+  /** how each end of the line is drawn, like Figma's stroke end points */
+  arrows: { start: ArrowPickView[]; end: ArrowPickView[]; onSwap: () => void };
   onReverse: () => void;
   onDelete: () => void;
 }
+
+export interface ArrowPickView { key: ArrowHead; label: string; active: boolean; onSelect: () => void }
+
+/** Line end options in Figma's order. */
+export const ARROW_HEADS: [ArrowHead, string][] = [
+  ['none', 'None'], ['line', 'Line arrow'], ['triangle', 'Triangle arrow'], ['reverse', 'Reversed triangle'], ['circle', 'Circle arrow'], ['diamond', 'Diamond arrow'],
+];
 
 export interface GroupInspectorView {
   label: string;
@@ -464,6 +473,17 @@ export function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: Edito
       : (e.calls ?? 0) > 0 ? `${e.calls}× every request` : `${Math.round((w / sumW) * 100)}% of ${from.label}`,
     rps: `${fmtCompact(sim.edgeRps[e.id] ?? 0)} rps`,
     onSlowPath: e.mode === 'async' ? 'No (async)' : sim.onSlowPath[e.id] ? 'Yes, slowest path' : 'No',
+    arrows: (() => {
+      const head = e.head ?? 'triangle', tail = e.tail ?? 'none';
+      const pick = (cur: ArrowHead, set: (v: ArrowHead) => void): ArrowPickView[] =>
+        ARROW_HEADS.map(([key, label]) => ({ key, label, active: key === cur, onSelect: () => set(key) }));
+      return {
+        start: pick(tail, (v) => a.updateEdge(e.id, { tail: v })),
+        end: pick(head, (v) => a.updateEdge(e.id, { head: v })),
+        // swap only the drawing; Reverse flips which way traffic flows
+        onSwap: () => a.updateEdge(e.id, { head: tail, tail: head }),
+      };
+    })(),
     onReverse: () => a.reverseEdge(e.id),
     onDelete: () => a.deleteEdge(e.id),
   };
