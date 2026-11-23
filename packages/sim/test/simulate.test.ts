@@ -45,7 +45,8 @@ describe('helpers', () => {
     expect(db({ shards: 4, strategy: 'hash' })).toBe(9);
     expect(db({ shards: 1, strategy: 'range' })).toBe(9);
     expect(db({ partition: 'time', sync: true, replicas: 1, shards: 2, strategy: 'range' })).toBeCloseTo(6.3 + 6 + 1, 12);
-    expect(S.serviceTime(S.makeNode('d', 'db', 0, 0, 'd', { tech: 'Cassandra' }))).toBeCloseTo(9 * 1.3, 12);
+    // a Cassandra coordinator waits for a quorum of replicas, plus one hop
+    expect(S.serviceTime(S.makeNode('d', 'db', 0, 0, 'd', { tech: 'Cassandra' }))).toBeCloseTo(9 * 1.3 * 1.15 + 0.5, 12);
   });
 
   test('dbConnLimit: explicit max connections, the technology default, or no limit', () => {

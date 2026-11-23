@@ -1,5 +1,5 @@
 import type { DesignDoc, DesignEdge, DesignGroup, DesignNode, DesignNote, NodeKind } from '@syslab/types';
-import { DEFAULT_AUTOSCALE, DEFAULT_REQUIREMENTS, KINDS, blankDoc, makeEdge, makeNode } from '@syslab/sim';
+import { DEFAULT_AUTOSCALE, DEFAULT_REQUIREMENTS, KINDS, blankDoc, isRingDb, makeEdge, makeNode } from '@syslab/sim';
 import { DesignSpec, SIZE_VALUES, type ComponentSpec, type DesignSpecInput } from './schema';
 import { layout } from './layout';
 
@@ -125,13 +125,20 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
     }
     if (c.database) {
       if (kind !== 'db') warnings.push(`database settings on "${c.name}" were ignored: it is not a db.`);
-      else over.dbc = {
+      else if ((c.database.nodes != null || c.database.replicationFactor != null || c.database.consistency || c.database.failedNodes != null) && !isRingDb({ kind, tech: c.tech ?? '' })) {
+        warnings.push(`nodes / replicationFactor / consistency on "${c.name}" only apply to ring databases (tech "Cassandra"); they were ignored.`);
+      }
+      if (kind === 'db') over.dbc = {
         ...(c.database.shards != null && { shards: c.database.shards }),
         ...(c.database.readReplicas != null && { replicas: c.database.readReplicas }),
         ...(c.database.syncReplication != null && { sync: c.database.syncReplication }),
         ...(c.database.shardKey && { shardKey: c.database.shardKey }),
         ...(c.database.shardStrategy && { strategy: c.database.shardStrategy }),
         ...(c.database.maxConnections != null && { maxConn: c.database.maxConnections }),
+        ...(c.database.nodes != null && { nodes: c.database.nodes }),
+        ...(c.database.replicationFactor != null && { rf: c.database.replicationFactor }),
+        ...(c.database.consistency && { consistency: c.database.consistency }),
+        ...(c.database.failedNodes != null && { downNodes: c.database.failedNodes }),
       };
     }
     if (c.loadBalancer) {

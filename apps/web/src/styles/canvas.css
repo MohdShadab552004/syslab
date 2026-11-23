@@ -322,3 +322,9 @@
 .journeybar .jcap { font: 600 11.5px/1.45 var(--font); color: var(--ink-2); min-height: 17px; }
 .journeybar .jbtns { display: flex; gap: 6px; justify-content: flex-end; }
 @media (max-width: 760px) { .journeybar { bottom: 76px; } }
+
+/* ring databases (Cassandra): gossip between the nodes */
+.edge.repl.gossip { border-top: 1.5px dashed #7fbf9a; z-index: 0; opacity: .85; }
+.edge.repl.gossip .arrow { display: none; }
+.pkt.repl.gossip { width: 7px; height: 7px; top: -4.5px; background: #b8e3c9; border-color: #3f9b6b; }
+.lod-far .edge.repl.gossip { border-top-width: calc(1.5px * var(--lw)); }

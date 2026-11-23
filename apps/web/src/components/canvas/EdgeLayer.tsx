@@ -39,7 +39,7 @@ export const EdgeLayer = memo(function EdgeLayer({ edges, replication, onHover, 
         <span key={p.key} className={cx('ppkt', p.fail && 'fail', p.tone != null && `t${p.tone}`, e.dim && 'dim')}
           style={{ offsetPath: `path('${l.path!.d}')`, animationDuration: `${p.dur}s`, animationDelay: `${p.delay}s` } as React.CSSProperties} />
       )))}
-      {replication.map((l) => <Line key={l.key} v={l} className="repl" packetClass="repl" />)}
+      {replication.map((l) => <Line key={l.key} v={l} className={l.gossip ? 'repl gossip' : 'repl'} packetClass={l.gossip ? 'repl gossip' : 'repl'} />)}
     </>
   );
 });

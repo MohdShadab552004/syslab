@@ -1,5 +1,5 @@
 import type { DesignDoc, DesignGroup } from '@syslab/types';
-import { DEFAULT_AUTOSCALE, KINDS, SIZES, cacheConfig, dbConfig, lbConfig, queueConfig } from '@syslab/sim';
+import { DEFAULT_AUTOSCALE, KINDS, SIZES, cacheConfig, dbConfig, isRingDb, lbConfig, queueConfig, ringConfig } from '@syslab/sim';
 import { SIZE_VALUES, type DesignSpecInput } from './schema';
 
 const LB_NAME = { rr: 'round_robin', wrr: 'weighted', lc: 'least_connections', hash: 'ip_hash' } as const;
@@ -51,7 +51,8 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
         ...(k.canAuto && as.on && (as.mode === 'v'
           ? { autoscale: { mode: 'vertical' as const, minSize: sizeName(as.minSize), maxSize: sizeName(as.maxSize), targetCpu: as.target } }
           : { autoscale: { mode: 'horizontal' as const, min: as.min, max: as.max, targetCpu: as.target } })),
-        ...(D && { database: { shards: D.shards, readReplicas: D.replicas, syncReplication: D.sync, shardKey: D.shardKey, shardStrategy: D.strategy, ...(D.maxConn > 0 && { maxConnections: D.maxConn }) } }),
+        ...(D && !isRingDb(n) && { database: { shards: D.shards, readReplicas: D.replicas, syncReplication: D.sync, shardKey: D.shardKey, shardStrategy: D.strategy, ...(D.maxConn > 0 && { maxConnections: D.maxConn }) } }),
+        ...(D && isRingDb(n) && (() => { const r = ringConfig(n); return { database: { nodes: r.nodes, replicationFactor: r.rf, consistency: r.cl, ...(r.down > 0 && { failedNodes: r.down }) } }; })()),
         ...(n.measured && (n.measured.rps || n.measured.ms) && { measured: { ...(n.measured.rps && { requestsPerSecond: n.measured.rps }), ...(n.measured.ms && { latencyMs: n.measured.ms }) } }),
         ...(L && { loadBalancer: { algorithm: LB_NAME[L.algo], ...(L.algo === 'hash' && { virtualNodes: L.vnodes as 1 | 10 | 100 }) } }),
         ...(n.kind === 'cache' && { cache: { ttlSeconds: cacheConfig(n).ttl } }),

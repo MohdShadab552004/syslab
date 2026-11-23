@@ -130,7 +130,19 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
         </Card>
       )}
 
-      {v.db && (
+      {v.db?.ring && (
+        <Card>
+          <div className="row"><SectionLabel>Ring cluster</SectionLabel><span className={v.db.ring.status.bad ? 'v bad' : 'v'}>{v.db.ring.status.text}</span></div>
+          <div className="row"><span className="k">Nodes</span><Stepper label="nodes in the ring" {...v.db.ring.nodes} /></div>
+          <div className="row"><span className="k">Replication factor</span><Stepper label="replication factor" {...v.db.ring.rf} /></div>
+          <div className="flab">Consistency level</div>
+          <OptionGroup layout="grid" options={v.db.ring.consistency} />
+          <div className="row"><span className="k">Failed nodes</span><Stepper label="failed nodes" {...v.db.ring.down} /></div>
+          <Hint>{v.db.ring.hint}</Hint>
+        </Card>
+      )}
+
+      {v.db && !v.db.ring && (
         <>
           <Card>
             <div className="row"><SectionLabel>Read replicas</SectionLabel><Stepper label="read replicas" {...v.db.replicas} /></div>

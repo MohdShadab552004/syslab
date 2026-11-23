@@ -103,6 +103,14 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     const c = sim.dbConns[n.id];
     if (c && c.need > c.limit) issues.push(`${n.label} has too many connections: ${c.need} needed (${c.need / 10} app/worker instances × 10) but only ${c.limit} allowed, so ${Math.round((1 - c.limit / c.need) * 100)}% of its queries are refused. Set database.maxConnections (10000 = a pooler like PgBouncer) or add read replicas.`);
   }
+  for (const n of d.nodes) {
+    const r = sim.ring?.[n.id];
+    if (r && r.down > 0) {
+      issues.push(r.unavailable > 0
+        ? `${n.label}: ${r.down} of ${r.nodes} nodes down, so ${Math.max(1, Math.round(r.unavailable * 100))}% of rows can't reach ${r.cl.toUpperCase()} (RF ${r.rf} tolerates ${r.rf - r.k}). Bring nodes back, lower the consistency level or raise the replication factor.`
+        : `${n.label}: ${r.down} of ${r.nodes} nodes down; every row still reaches ${r.cl.toUpperCase()} (RF ${r.rf}).`);
+    }
+  }
   for (const e of d.edges) {
     const from = name(e.from), to = name(e.to);
     if (sim.breakerOpen[e.id]) issues.push(`Circuit breaker ${from} → ${to} is open: calls fail fast while ${to} recovers.`);

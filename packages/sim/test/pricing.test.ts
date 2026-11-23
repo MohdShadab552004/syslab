@@ -41,7 +41,8 @@ describe('priceNode', () => {
     expect(price('db', { tech: 'Postgres' }).monthly).toBeCloseTo(per(1.78, 0.115), 9);
     expect(price('db', { tech: 'MySQL', dbc: { shards: 2, replicas: 2 } }).monthly).toBeCloseTo(per(1.78, 0.115) * 6, 9);
     expect(price('db', { tech: 'MongoDB' }).detail).toBe('DocumentDB 1 × m6i.4xlarge + 500 GB each');
-    expect(price('db', { tech: 'Cassandra' }).monthly).toBeCloseTo(per(1, 0.08), 9);
+    expect(price('db', { tech: 'Cassandra' }).monthly).toBeCloseTo(per(1, 0.08) * 3, 9); // a 3-node ring, self-managed on EC2
+    expect(price('db', { tech: 'Cassandra', dbc: { nodes: 6 } }).detail).toBe('EC2 (self-managed) 6 × m6i.4xlarge + 500 GB each');
     const dyn = price('db', { tech: 'DynamoDB' }, { rps: 1000, read: 0.9 });
     const writes = (100 * S.SECONDS_PER_MONTH) / 1e6, reads = (900 * S.SECONDS_PER_MONTH) / 1e6;
     expect(dyn.monthly).toBeCloseTo(writes * 1.25 + reads * 0.25 + 500 * 0.25, 6);

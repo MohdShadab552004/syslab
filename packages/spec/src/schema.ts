@@ -41,6 +41,10 @@ export const ComponentSpec = z.object({
     syncReplication: z.boolean().optional().describe('true = writes wait for replicas (slower, never stale)'),
     shardKey: z.string().trim().max(40).optional(),
     shardStrategy: z.enum(['hash', 'range', 'geo']).optional(),
+    nodes: z.number().int().min(3).max(24).optional().describe('Cassandra only: nodes in the ring. More nodes = more capacity.'),
+    replicationFactor: z.number().int().min(1).max(5).optional().describe('Cassandra only: copies of every row (default 3, at most the node count).'),
+    consistency: z.enum(['one', 'quorum', 'all']).optional().describe('Cassandra only: replicas a read or write waits for (default quorum = RF/2 + 1).'),
+    failedNodes: z.number().int().min(0).max(24).optional().describe('Cassandra only: nodes down, to show a partial outage.'),
     maxConnections: z.number().int().min(10).max(100_000).optional().describe('Max client connections per server. Default: Postgres 100, MySQL 151, no limit for MongoDB/Cassandra/DynamoDB. Use 10000 to model a pooler like PgBouncer.'),
   }).optional().describe('Only for kind db.'),
   loadBalancer: z.object({

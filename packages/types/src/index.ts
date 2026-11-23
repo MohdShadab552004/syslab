@@ -26,6 +26,9 @@ export interface AutoscaleConfig {
 export type ShardStrategy = 'hash' | 'range' | 'geo';
 export type PartitionStrategy = 'none' | 'time' | 'list' | 'hash';
 
+/** Ring databases (Cassandra): how many replicas a read or write waits for. */
+export type RingConsistency = 'one' | 'quorum' | 'all';
+
 export interface DbConfig {
   replicas: number;
   sync: boolean;
@@ -37,6 +40,14 @@ export interface DbConfig {
   parts: number;
   /** max client connections per database server; 0 = the technology's default (Postgres 100, MySQL 151) */
   maxConn: number;
+  /** ring databases: nodes in the ring; 0 = derived from shards × (1 + replicas), at least 3 */
+  nodes: number;
+  /** ring databases: copies of every row (replication factor); 0 = 3 */
+  rf: number;
+  /** ring databases: replicas a read or write waits for */
+  consistency: RingConsistency;
+  /** ring databases: nodes currently failed (to rehearse outages) */
+  downNodes: number;
 }
 
 /**
