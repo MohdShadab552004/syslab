@@ -38,8 +38,8 @@ export const MinimalBar = memo(function MinimalBar(p: Props) {
         {p.toolbar}
         <div className="minibar right" onPointerDown={stop}>
           <span className="status" title={p.status}><span className={p.running ? 'live' : 'idle'} /><span className="stext">{p.status}</span></span>
-          <Button icon={ICON.share} onClick={p.onShare}>Share</Button>
-          <Button variant="primary" iconFill icon={p.running ? ICON.pause : ICON.play} onClick={p.onToggleRun}>{p.running ? 'Pause' : 'Run'}</Button>
+          <Button size="sm" icon={ICON.share} onClick={p.onShare}>Share</Button>
+          <Button size="sm" variant="primary" iconFill icon={p.running ? ICON.pause : ICON.play} onClick={p.onToggleRun}>{p.running ? 'Pause' : 'Run'}</Button>
         </div>
       </div>
     </div>

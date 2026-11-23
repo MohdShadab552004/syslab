@@ -131,10 +131,12 @@
   .app.minimal .miniend { margin-left: auto; display: flex; align-items: flex-start; gap: 10px; pointer-events: none; }
   .app.minimal .miniend > * { pointer-events: auto; }
   .app.minimal .minirow .toolbar { position: static; }
-  .app.minimal .minibar { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 8px; flex: none;
+  /* same height as the toolbar: 28px buttons inside 5px padding */
+  .app.minimal .minibar { display: flex; align-items: center; gap: 6px; padding: 5px 6px; flex: none;
     background: var(--surface); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 2px 0 var(--line); }
   .app.minimal .minibar.left { max-width: 280px; }
-  .app.minimal .minibar.right { gap: 8px; padding: 0 6px 0 12px; }
+  .app.minimal .minibar.right { gap: 6px; padding: 5px 5px 5px 10px; }
+  .app.minimal .minibar .minibtn { width: 28px; height: 28px; }
   .app.minimal .mininame { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 0 4px; }
 }
 @media (max-width: 900px) {
