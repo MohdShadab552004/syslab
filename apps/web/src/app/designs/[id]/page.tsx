@@ -36,6 +36,7 @@ import { FlowPlayerBar, LessonTimeline } from '@/components/editor/BottomBars';
 import { ShareModal } from '@/components/editor/ShareModal';
 import { ShortcutsModal } from '@/components/editor/ShortcutsModal';
 import { MobileFabs, Sheet } from '@/components/editor/MobileSheets';
+import { MinimalBar } from '@/components/editor/MinimalBar';
 
 /** Design Lab editor. Hooks own all logic; this file only wires them to components. */
 export default function EditorPage() {
@@ -67,7 +68,7 @@ export default function EditorPage() {
   if (!boot.ready || !view || !metrics || !inspector || !player) return <div className="empty static center">Loading design…</div>;
 
   return (
-    <div className="app editor">
+    <div className={chrome.minimal ? 'app editor minimal' : 'app editor'}>
       <EditorHeader {...chrome.header} onSaveVersion={versions.onSave} onShare={share.onOpen} onHelp={shortcuts.openHelp} />
 
       <div className="main">
@@ -84,6 +85,10 @@ export default function EditorPage() {
           {journeyBar && <JourneyBar {...journeyBar} />}
           {!view.nodes.length && <EmptyCanvas />}
           <EventsFeed events={chrome.events} />
+          {chrome.minimal && (
+            <MinimalBar name={chrome.header.name} status={chrome.header.status} running={chrome.header.running}
+              onToggleRun={chrome.header.onToggleRun} onShare={share.onOpen} onRestore={chrome.header.onMinimize} />
+          )}
         </Canvas>
 
         <Sheet title="Details" open={mobile.panel === 'inspector'} onClose={mobile.close}>

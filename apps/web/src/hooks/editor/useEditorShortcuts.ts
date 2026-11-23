@@ -40,6 +40,8 @@ export function useEditorShortcuts() {
       // so e.g. Ctrl+C still copies selected page text when nothing is selected on the canvas.
       if (e.ctrlKey || e.metaKey) {
         if (e.altKey) return;
+        // Ctrl+Shift+\ like Figma: hide or show every panel around the canvas
+        if (e.shiftKey && e.code === 'Backslash') { e.preventDefault(); a.toggleMinimal(); return; }
         const k = e.key.toLowerCase();
         let done = false;
         if (k === 'a' && !e.shiftKey) { a.selectAll(); done = true; }

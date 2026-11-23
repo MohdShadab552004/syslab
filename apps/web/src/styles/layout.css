@@ -31,7 +31,7 @@
 .phint { margin-top: auto; font-size: 10.5px; line-height: 1.55; color: var(--muted); padding: 10px; border: 1px dashed #d3d1c9; border-radius: 10px; }
 
 /* inspector column */
-.inspector { flex: 1 1 290px; max-width: 340px; background: var(--surface); border-left: 1px solid var(--line); height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 96px)); overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.inspector { flex: 1 1 300px; max-width: 340px; background: var(--surface); border-left: 1px solid var(--line); height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 96px)); overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 
 /* bottom bars */
 .timeline { background: var(--surface); border-top: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; min-height: 96px; }
@@ -115,4 +115,23 @@
   .editor .top .btn-primary { padding: 0 10px; }
   .editor .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .editor .connhint, .editor .recbar { top: 170px; }
+}
+
+/* ---------- Minimize UI (Ctrl+Shift+\): only the canvas, with two floating pills ---------- */
+.minibtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; flex: none; }
+.minibtn:hover { background: var(--surface-2); color: var(--ink); }
+.minibar { display: none; }
+@media (min-width: 901px) {
+  .app.minimal, .app.minimal:has(.timeline.compact) { --top-h: 0px; --bottom-h: 0px; }
+  .app.minimal .top, .app.minimal .palette, .app.minimal .inspector, .app.minimal .timeline { display: none; }
+  .app.minimal .minibar { position: absolute; top: 14px; z-index: 40; display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 2px 0 var(--line), 0 8px 24px rgba(0,0,0,.06); }
+  .app.minimal .minibar.left { left: 16px; max-width: 40%; }
+  .app.minimal .minibar.right { right: 16px; gap: 10px; padding: 0 8px 0 12px; }
+  .app.minimal .mininame { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 0 4px; }
+  /* the canvas overlays move below the pills */
+  .app.minimal .metrics, .app.minimal .toolbar { top: 74px; }
+}
+@media (max-width: 900px) {
+  .editor .top .minimize { display: none; }
 }
