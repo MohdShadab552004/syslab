@@ -54,7 +54,7 @@ describe('nodeView: common parts', () => {
     expect(v.tech).toMatchObject({ value: 'Node.js', options: TECHS.app });
     expect(v.sizes).toHaveLength(SIZES.length);
     expect(v.sizes!.find((s) => s.active)!.key).toBe('2');
-    expect(v.sizes![0].sub).toBe('$60/mo');
+    expect(v.sizes![0].sub).toBe('$62/mo'); // c6i.large
     expect(v.connections.map((c) => c.text)).toEqual(['← Users · REST', '→ DB · REST']);
     expect(v.stats).toMatchObject({ incoming: '720 rps', capacity: '2.4k rps' });
     expect(v.stats!.latency).toMatch(/ ms$/);
@@ -202,7 +202,7 @@ describe('nodeView: database', () => {
     const { v, a } = nv(chain(), 'd');
     const db = v.db!;
     expect(v.replicas).toBeNull();
-    expect(v.sizes![0].sub).toBe('$84/mo');
+    expect(v.sizes![0].sub).toBe('$110/mo'); // RDS on c6i.large
     expect(db).toMatchObject({ syncModes: null, sharding: null, partition: null });
     expect(db.replicaHint).toMatch(/^No replicas/);
     expect(db.shardHint).toMatch(/^One shard holds/);
@@ -347,7 +347,7 @@ describe('nodeView: cache', () => {
     const { v, a } = nv(lone(), 'c');
     expect(v.cache).toMatchObject({ hit: '90% of reads', state: { text: 'Warm', bad: false } });
     expect(v.cache!.hint).toMatch(/^Nothing is behind this cache/);
-    expect(v.sizes![0].sub).toBe('$36/mo');
+    expect(v.sizes![0].sub).toBe('$96/mo'); // ElastiCache on c6i.large
     v.cache!.ttl[4].onSelect(); expect(a.updateCache).toHaveBeenLastCalledWith('c', { ttl: 3600 });
   });
 

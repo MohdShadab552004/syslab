@@ -168,6 +168,12 @@ describe('ui', () => {
     A().setRewire({ edgeId: 'ua', end: 'to', x: 0, y: 0, over: null });
     A().setMarquee({ x1: 0, y1: 0, x2: 1, y2: 1 });
     A().toggleRunning();
+    expect(S().ui.minimal).toBe(false);
+    A().toggleMinimal();
+    expect(S().ui.minimal).toBe(true);
+    expect(globalThis.localStorage?.getItem('syslab.minimal') ?? '1').toBe('1');
+    A().toggleMinimal();
+    expect(S().ui.minimal).toBe(false);
     A().setSpike(10);
     expect(S().ui).toMatchObject({ query: 'q', shareOpen: true, running: false, marquee: { x2: 1 } });
     expect(S().ui.rewire?.edgeId).toBe('ua');

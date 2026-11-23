@@ -17,3 +17,48 @@
 .lbrow.down { color: var(--muted); }
 .lbrow.down .lbshare { grid-column: 2 / 4; font-size: 10.5px; font-weight: 700; }
 .lbrow.down .lbload { display: none; }
+
+/* metrics panel: time-series charts and cost */
+.spark { margin: 6px 0 10px; }
+.spark .sphead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; }
+.spark .splabel { font-weight: 700; color: var(--ink-2); }
+.spark .spval { font-weight: 800; color: var(--ink); }
+.spark.bad .spval { color: var(--danger); }
+.spark svg { display: block; width: 100%; height: auto; margin-top: 3px; border-radius: 6px; background: var(--surface-2); overflow: visible; }
+.spark .spline { fill: none; stroke: var(--accent); stroke-width: 1.6px; vector-effect: non-scaling-stroke; }
+.spark.bad .spline { stroke: var(--danger); }
+.spark .sparea { fill: var(--accent); opacity: .1; stroke: none; }
+.spark.bad .sparea { fill: var(--danger); }
+.spark .sp2 { fill: none; stroke: var(--ink-3, #8a8d93); stroke-width: 1px; stroke-dasharray: 3 3; opacity: .7; vector-effect: non-scaling-stroke; }
+.spark .spth { stroke: var(--danger); stroke-width: 1px; stroke-dasharray: 4 3; opacity: .7; vector-effect: non-scaling-stroke; }
+.spark .spmark { stroke: #e09a2c; stroke-width: 1px; opacity: .6; vector-effect: non-scaling-stroke; }
+.spark .spfoot { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-3, #8a8d93); margin-top: 2px; }
+.trend { margin-top: 6px; }
+.costbar { margin: 6px 0; }
+.costbar .cbtrack { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 3px; }
+.costbar .cbfill { height: 100%; background: var(--accent); border-radius: 3px; }
+.costitem { margin: 4px 0 8px; }
+.costitem .cidetail { font-size: 10.5px; color: var(--ink-3, #8a8d93); margin-top: -2px; }
+.saving { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.saving:last-of-type { border-bottom: 0; }
+.saving .samt { font-weight: 800; color: #2f855a; white-space: nowrap; }
+.v.good { color: #2f855a; }
+.segs.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* ring databases: thread pools of the busiest node, like nodetool tpstats */
+.tpsrow { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 6px; font-size: 11px; font-weight: 700; padding: 3px 0; }
+.tpsrow span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.tpsrow span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpsrow.head { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.tpsrow + .tpsrow { border-top: 1px dashed var(--line); }
+.tpsrow.bad span:last-child { color: var(--danger); }
+
+/* line end picker (Figma-style start / end points) */
+.arrowpick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.apick { height: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: #fff; color: var(--ink-2); cursor: pointer; box-shadow: 0 -1px 0 0 #cfcdc5 inset, 0 0 0 1px rgba(0,0,0,.07) inset; }
+.apick:hover { color: var(--ink); }
+.apick.on { background: #303030; color: #fff; box-shadow: 0 2px 0 #000; }
+.apick svg { overflow: visible; }
+.apick line { stroke: currentColor; stroke-width: 1.6px; }
+.apick .head { fill: currentColor; }
+.apick .head.open { fill: none; stroke: currentColor; stroke-width: 1.8px; stroke-linecap: round; stroke-linejoin: round; }

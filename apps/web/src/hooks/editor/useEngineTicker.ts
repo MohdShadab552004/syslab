@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { simulate, stepRuntime } from '@syslab/sim';
 import { traceJourney } from '@/lib/canvas/trace';
+import { sampleOf } from '@/lib/metrics/history';
 import { useEditorStore } from './editor.store';
 
 const TICK_MS = 1000;
@@ -26,8 +27,10 @@ export function useEngineTicker() {
       actions.expireEvents(now);
 
       if (ui.running && !ui.dragging) {
-        const step = stepRuntime(doc, simulate(doc, s.runtime), s.runtime, now);
+        const sim = simulate(doc, s.runtime);
+        const step = stepRuntime(doc, sim, s.runtime, now);
         if (step) actions.applyRuntime(step.runtime, step.events);
+        actions.recordSample(sampleOf(doc, sim, now, step?.events.map((e) => e.text) ?? []));
       }
 
       const jp = ui.journeyPlay;

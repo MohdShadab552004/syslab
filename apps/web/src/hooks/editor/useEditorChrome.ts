@@ -25,16 +25,18 @@ export function useEditorChrome() {
   const flowCount = useEditorStore((s) => s.doc?.flows.length ?? 0);
   const doc = useEditorStore((s) => s.doc);
   const view = useEditorStore((s) => s.ui.view);
+  const minimal = useEditorStore((s) => s.ui.minimal);
   const a = useEditorStore((s) => s.actions);
 
   const recFlow = recording ? doc?.flows.find((f) => f.id === recording) : undefined;
   const pendingLabel = pending ? doc?.nodes.find((n) => n.id === pending)?.label : undefined;
 
   return {
+    minimal,
     header: {
       name, onRename: a.rename,
       saveText: SAVE_TEXT[saveState], saveBad: saveState === 'error' || saveState === 'conflict',
-      running, onToggleRun: a.toggleRunning,
+      running, onToggleRun: a.toggleRunning, onMinimize: a.toggleMinimal,
       status: running ? (spike > 1 ? `Simulating · spike ×${spike}` : 'Simulating') : 'Paused',
     },
     toolbar: {
@@ -63,6 +65,7 @@ export function useEditorChrome() {
     tabs: [
       { key: 'inspect', label: 'Inspect', active: tab === 'inspect', onSelect: () => a.setTab('inspect') },
       { key: 'flows', label: `Flows · ${flowCount}`, active: tab === 'flows', onSelect: () => a.setTab('flows') },
+      { key: 'metrics', label: 'Metrics', active: tab === 'metrics', onSelect: () => a.setTab('metrics') },
       { key: 'versions', label: 'Versions', active: tab === 'versions', onSelect: () => a.setTab('versions') },
     ],
     tab,

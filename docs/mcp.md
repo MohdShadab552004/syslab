@@ -60,12 +60,17 @@ Realism fields (all optional):
 | `tech` | component | Known technologies change capacity and latency (Go ×1.6, Python ×0.55, Postgres caps connections at 100…) |
 | `measured: { requestsPerSecond, latencyMs }` | component | Numbers from a real load test; they replace the estimates |
 | `database.maxConnections` | db | Client connections per server (10000 ≈ a pooler like PgBouncer) |
+| `database.nodes`, `replicationFactor`, `consistency`, `failedNodes` | db (Cassandra) | Ring of 3–24 equal nodes; copies of every row (default 3); replicas a request waits for (`one` / `quorum` / `all`); nodes down to rehearse an outage |
+| `database.writeConsistency` | db (Cassandra) | Write level when it differs from reads; R + W > RF keeps reads consistent |
+| `database.hotKeyShare`, `keyBuckets` | db (Cassandra) | % of traffic on the hottest partition key (0–90); buckets it is salted into (1–64) |
+| `database.partitionMb`, `speculativeRetry` | db (Cassandra) | Average partition size (default 10, over 100 slows reads); re-send slow reads (default true) |
 | `cache.ttlSeconds` | cache | How long keys live if the database behind it goes down |
 | `queue.mode` | queue | `pubsub` (every subscriber gets every message; Kafka default) or `work` (workers share messages) |
+| `avgResponseKb`, `avgFileKb`, `storageGb` | design | Sizes that drive the cost: API reply size, CDN file size, data per database server |
 | `callsPerRequest` | connection | Fan-out: every request makes this many calls here (instead of splitting traffic) |
 | `retries`, `circuitBreaker` | connection | Failure handling; retries can cause retry storms |
 
-`simulate_design` reports mean / P95 / P99 latency, per-component load and latency, and issues such as
+`simulate_design` reports a `timeline` (one point every 5 s), a `cost` breakdown at AWS list prices with ways to save, mean / P95 / P99 latency, per-component load and latency, and issues such as
 connection limits, retry storms and open breakers. How the numbers are computed: [simulation.md](simulation.md).
 
 Kinds: `users, cdn, lb, gateway, app, worker, cache, db, store, queue, ext`. The full schema with a

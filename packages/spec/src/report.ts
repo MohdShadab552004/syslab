@@ -1,5 +1,5 @@
 import type { DesignDoc } from '@syslab/types';
-import { CACHE_HIT, EMPTY_RUNTIME, LB_ALGOS, cacheConfig, OVERLOAD, fmtCompact, fmtMoney, fmtMs, lbConfig, simulate, stepRuntime, type Runtime } from '@syslab/sim';
+import { CACHE_HIT, EMPTY_RUNTIME, LB_ALGOS, cacheConfig, costBreakdown, OVERLOAD, fmtCompact, fmtMoney, fmtMs, lbConfig, simulate, stepRuntime, type Runtime, type SimResult, WIDE_PARTITION_MB, effectivePartitionMb, readPenalty, toleratedFailures } from '@syslab/sim';
 
 export interface SimulationReport {
   users: number;
@@ -20,7 +20,30 @@ export interface SimulationReport {
   scaling: string[];
   queues: { component: string; mode: 'pubsub' | 'work'; waitingMessages: number; changePerSecond: number; subscribers: { component: string; behindMessages: number; changePerSecond: number }[] }[];
   loadBalancers: { component: string; algorithm: string; split: string }[];
+  /** how the run evolved: one point every 5 seconds (and the last one) */
+  timeline: { second: number; requestsPerSecond: number; p95Ms: number | null; errorRatePercent: number; instances: number; queueBacklog: number; monthlyCostUsd: number }[];
+  /** the monthly bill at AWS list prices: by category, biggest items, and standard ways to save */
+  cost: {
+    totalUsd: number;
+    source: string;
+    byCategory: { category: string; usd: number }[];
+    topItems: { component: string; usd: number; detail: string }[];
+    savings: { text: string; usd: number }[];
+  };
   text: string;
+}
+
+/** One point of the report timeline. */
+function point(d: DesignDoc, sim: SimResult, second: number) {
+  let instances = 0, queueBacklog = 0;
+  for (const n of d.nodes) {
+    if (n.kind === 'app' || n.kind === 'worker' || n.kind === 'cache') instances += sim.reps[n.id] ?? 1;
+    if (n.kind === 'queue') queueBacklog += sim.queue[n.id]?.depth ?? 0;
+  }
+  return {
+    second, requestsPerSecond: Math.round(sim.rps), p95Ms: sim.rps > 0 ? Math.round(sim.p95) : null,
+    errorRatePercent: Math.round(sim.errorRate * 1000) / 10, instances, queueBacklog: Math.round(queueBacklog), monthlyCostUsd: Math.round(sim.cost),
+  };
 }
 
 /**
@@ -33,13 +56,25 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
   let rt: Runtime = { ...EMPTY_RUNTIME, autoRep: {}, drain: {}, autoSize: {}, qDepth: {}, cacheHit: {}, spike: opts.spike ?? 1 };
   const scaling: string[] = [];
   const seconds = Math.min(300, Math.max(0, opts.seconds ?? 60));
+  const timeline: SimulationReport['timeline'] = [];
   for (let t = 0; t < seconds; t++) {
-    const step = stepRuntime(d, simulate(d, rt), rt, t * 1000);
+    const now = simulate(d, rt);
+    if (t % 5 === 0) timeline.push(point(d, now, t));
+    const step = stepRuntime(d, now, rt, t * 1000);
     if (!step) break;
     rt = step.runtime;
     for (const ev of step.events) if (!ev.text.startsWith('Draining')) scaling.push(`t=${t + 1}s ${ev.text}`);
   }
   const sim = simulate(d, rt);
+  const end = timeline.length ? Math.max(seconds, timeline[timeline.length - 1].second) : seconds;
+  if (!timeline.length || timeline[timeline.length - 1].second !== end) timeline.push(point(d, sim, end));
+  const bill = costBreakdown(d, sim);
+  const cost: SimulationReport['cost'] = {
+    totalUsd: Math.round(bill.total), source: bill.source,
+    byCategory: bill.byCategory.map((c) => ({ category: c.category, usd: Math.round(c.monthly) })),
+    topItems: bill.items.filter((i) => i.monthly > 0).slice(0, 8).map((i) => ({ component: i.label, usd: Math.round(i.monthly), detail: i.detail })),
+    savings: bill.savings.slice(0, 6).map((s) => ({ text: s.text, usd: Math.round(s.monthly) })),
+  };
   const name = (id: string) => sim.byId.get(id)?.label ?? id;
   const live = d.nodes.filter((n) => n.kind !== 'users' && !n.down);
   const overloaded = live.filter((n) => (sim.load[n.id] ?? 0) > OVERLOAD)
@@ -68,6 +103,22 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     const c = sim.dbConns[n.id];
     if (c && c.need > c.limit) issues.push(`${n.label} has too many connections: ${c.need} needed (${c.need / 10} app/worker instances × 10) but only ${c.limit} allowed, so ${Math.round((1 - c.limit / c.need) * 100)}% of its queries are refused. Set database.maxConnections (10000 = a pooler like PgBouncer) or add read replicas.`);
   }
+  for (const n of d.nodes) {
+    const r = sim.ring?.[n.id];
+    if (!r) continue;
+    const pct = (v: number) => `${Math.max(1, Math.round(v * 100))}%`;
+    if (r.down > 0) {
+      issues.push(r.unavailable > 0
+        ? `${n.label}: ${r.down} of ${r.nodes} nodes down, so ${pct(r.unavailable)} of requests can't reach their consistency level (RF ${r.rf} tolerates ${toleratedFailures(r)}) and fail at once (UnavailableException). Bring nodes back, lower the consistency level or raise the replication factor.`
+        : `${n.label}: ${r.down} of ${r.nodes} nodes down; every row still reaches ${r.cl.toUpperCase()} (RF ${r.rf}).`);
+    }
+    if (r.hot > 0 && r.hotNodes < r.nodes - r.down && r.hotLoad > r.coldLoad * 1.5) {
+      issues.push(`${n.label}: hot partition. ${Math.round(r.hot * 100)}% of traffic hits one key, so its ${r.hotNodes} replica nodes run at ${pct(r.hotLoad)} while the rest run at ${pct(r.coldLoad)}${r.drop > 0 ? ` and drop ${pct(r.drop)} of operations (timeouts)` : ''}. Salt the key into buckets (database.keyBuckets).`);
+    }
+    const mb = effectivePartitionMb(r);
+    if (mb > WIDE_PARTITION_MB) issues.push(`${n.label}: partitions of ${Math.round(mb)} MB make every read ${readPenalty(r).toFixed(1)}× dearer and slow compaction and repair. Keep them under ${WIDE_PARTITION_MB} MB (bucket the key).`);
+    if (r.stale > 0) issues.push(`${n.label}: reads at ${r.cl.toUpperCase()} (${r.k}) + writes at ${r.wcl.toUpperCase()} (${r.kw}) ≤ RF ${r.rf}, so up to ${pct(r.stale)} of reads right after a write miss it. Raise either level until R + W > RF.`);
+  }
   for (const e of d.edges) {
     const from = name(e.from), to = name(e.to);
     if (sim.breakerOpen[e.id]) issues.push(`Circuit breaker ${from} → ${to} is open: calls fail fast while ${to} recovers.`);
@@ -79,8 +130,10 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
   const mean = sim.rps > 0 ? Math.round(sim.meanLatency) : null;
   const lines = [
     `Traffic: ${fmtCompact(sim.users)} concurrent users${(opts.spike ?? 1) > 1 ? ` (spike ×${opts.spike})` : ''} → ${fmtCompact(sim.rps)} requests/s.`,
-    `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.${p95 == null ? '' : ` (mean ${fmtMs(mean!)}, P99 ${fmtMs(p99!)})`}${sim.fastFailRate > 0.05 ? ` Latency only counts answered requests: ${Math.round(sim.fastFailRate * 100)}% were rejected instantly by an open circuit breaker.` : ''}`,
-    `Errors: ${(sim.errorRate * 100).toFixed(1)}%. Cost: ${fmtMoney(sim.cost)}/month.`,
+    `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.${p95 == null ? '' : ` (mean ${fmtMs(mean!)}, P99 ${fmtMs(p99!)})`}${sim.fastFailRate > 0.05 ? ` Latency only counts answered requests: ${Math.round(sim.fastFailRate * 100)}% failed fast (an open circuit breaker, or a ring without enough live replicas).` : ''}`,
+    `Errors: ${(sim.errorRate * 100).toFixed(1)}%. Cost: ${fmtMoney(sim.cost)}/month (${bill.source}).`,
+    ...(cost.byCategory.length ? [`Cost by category: ${cost.byCategory.map((c) => `${c.category} ${fmtMoney(c.usd)}`).join(', ')}.`] : []),
+    ...(cost.savings.length ? [`Ways to save (each estimated alone): ${cost.savings.slice(0, 3).map((s) => `${s.text} −${fmtMoney(s.usd)}/mo`).join('; ')}.`] : []),
     overloaded.length ? `Overloaded: ${overloaded.map((o) => `${o.component} ${o.loadPercent}%`).join(', ')}.` : busiest ? `No component is overloaded; busiest is ${busiest.component} at ${busiest.loadPercent}%.` : 'No traffic, so nothing is loaded.',
     ...issues,
     ...(sim.rps > 0 && components.length ? [`Per component: ${components.slice(0, 15).map((c) => `${c.component} ${c.offline ? 'OFFLINE' : `${fmtCompact(c.requestsPerSecond)} rps ${c.loadPercent}%`}`).join(', ')}${components.length > 15 ? ', …' : ''}.`] : []),
@@ -107,6 +160,6 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
     users: sim.users, requestsPerSecond: Math.round(sim.rps), p95Ms: p95, p99Ms: p99, meanLatencyMs: mean, latencyTargetMs: slo,
     meetsLatencyTarget: p95 == null || p95 <= slo,
     errorRatePercent: Math.round(sim.errorRate * 1000) / 10, monthlyCostUsd: Math.round(sim.cost),
-    overloaded, busiest, components, issues, scaling, queues, loadBalancers, text: lines.join('\n'),
+    overloaded, busiest, components, issues, scaling, queues, loadBalancers, timeline, cost, text: lines.join('\n'),
   };
 }

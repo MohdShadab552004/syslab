@@ -116,8 +116,9 @@ test('read replicas raise read capacity', () => {
   assert.ok(four.load.db < one.load.db / 2);
 });
 
-test('cost adds up node costs', () => {
+test('cost adds up node costs plus internet data transfer', () => {
   const s = S.simulate(basic().doc);
   const sum = Object.values(s.nodeCost).reduce((a, b) => a + b, 0);
-  assert.ok(Math.abs(sum - s.cost) < 1e-6);
+  assert.ok(s.egress.monthly > 0);
+  assert.ok(Math.abs(sum + s.egress.monthly - s.cost) < 1e-6);
 });

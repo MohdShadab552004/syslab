@@ -1,5 +1,5 @@
 import type { DesignEdge, DesignNode } from '@syslab/types';
-import { KINDS, dbConfig } from '@syslab/sim';
+import { KINDS, RING_MAX_SHOWN, dbConfig, isRingDb, ringConfig, ringRadius } from '@syslab/sim';
 
 /** Where a node ended up, plus how much room it takes around its anchor (for boxes). */
 export interface Placed { x: number; y: number; w: number; h: number; left: number; right: number; top: number; bottom: number }
@@ -29,7 +29,10 @@ function extents(n: DesignNode) {
     top += (rows - 1) * 55;
     bottom += (rows - 1) * 55;
   }
-  if (n.kind === 'db') {
+  if (isRingDb(n)) {
+    const r = ringRadius(Math.min(ringConfig(n).nodes, RING_MAX_SHOWN)) + 45;
+    left = Math.max(left, r); right = Math.max(right, r); top = Math.max(top, r); bottom = Math.max(bottom, r);
+  } else if (n.kind === 'db') {
     const D = dbConfig(n);
     const S = Math.min(D.shards, 4), R = Math.min(D.replicas, 3);
     if (S > 1 || R > 0) {

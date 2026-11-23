@@ -45,7 +45,8 @@ describe('helpers', () => {
     expect(db({ shards: 4, strategy: 'hash' })).toBe(9);
     expect(db({ shards: 1, strategy: 'range' })).toBe(9);
     expect(db({ partition: 'time', sync: true, replicas: 1, shards: 2, strategy: 'range' })).toBeCloseTo(6.3 + 6 + 1, 12);
-    expect(S.serviceTime(S.makeNode('d', 'db', 0, 0, 'd', { tech: 'Cassandra' }))).toBeCloseTo(9 * 1.3, 12);
+    // a Cassandra coordinator waits for a quorum of replicas, plus one hop
+    expect(S.serviceTime(S.makeNode('d', 'db', 0, 0, 'd', { tech: 'Cassandra' }))).toBeCloseTo(9 * 1.3 * 1.15 + 0.5, 12);
   });
 
   test('dbConnLimit: explicit max connections, the technology default, or no limit', () => {
@@ -435,12 +436,21 @@ describe('latency tail', () => {
 });
 
 describe('cost', () => {
-  test('sized kinds pay per machine × cost multiplier; databases pay per shard and replica', () => {
+  test('AWS list prices: EC2 per instance, RDS per shard and replica, ElastiCache, an Nginx pair, internet egress', () => {
     const d = design({ users: 1000 }, ['u', 'users'], ['lb', 'lb'], ['a', 'app', { size: 1, replicas: 3 }], ['db', 'db', { size: 2, dbc: { shards: 2, replicas: 1 } }], ['c', 'cache', { size: 0 }])
       .edge('u', 'lb').edge('lb', 'a').edge('a', 'db').edge('a', 'c');
     const s = S.simulate(d.doc);
-    expect(s.nodeCost).toEqual({ u: 0, lb: 25, a: 240 * 3, db: 600 * 1.4 * 2 * 2, c: 60 * 0.6 });
-    expect(s.cost).toBeCloseTo(25 + 720 + 3360 + 36, 9);
+    const h = S.HOURS_PER_MONTH;
+    expect(s.nodeCost.u).toBe(0);
+    expect(s.nodeCost.lb).toBeCloseTo(0.085 * h * 2, 6); // 2 × c6i.large
+    expect(s.nodeCost.a).toBeCloseTo(0.384 * h * 3, 6); // 3 × m6i.2xlarge
+    expect(s.nodeCost.db).toBeCloseTo((0.768 * 1.78 * h + 500 * 0.115) * 4, 6); // RDS m6i.4xlarge × 2 shards × (1 + 1 replica)
+    expect(s.nodeCost.c).toBeCloseTo(0.085 * 1.55 * h, 6); // ElastiCache on c6i.large
+    const gb = (60 * S.SECONDS_PER_MONTH * 10) / 1_048_576;
+    expect(s.egress.gb).toBeCloseTo(gb, 6);
+    expect(s.egress.monthly).toBeCloseTo((gb - 100) * 0.09, 6); // first 100 GB free
+    expect(s.cost).toBeCloseTo(Object.values(s.nodeCost).reduce((a, b) => a + b, 0) + s.egress.monthly, 6);
+    expect(s.nodeCostDetail.db.detail).toBe('RDS 4 × m6i.4xlarge + 500 GB each');
   });
 });
 

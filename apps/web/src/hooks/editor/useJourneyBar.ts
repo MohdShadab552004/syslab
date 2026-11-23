@@ -16,5 +16,6 @@ export function useJourneyBar(j: JourneyView | null): JourneyBarProps | null {
     // ‹ / › move one step and pause; 0 resumes from the current step
     onStep: (d) => at((j.idx ?? 0) + d, d === 0),
     onClose: () => a.setJourneyPlay(null),
+    onDismiss: () => a.clearSelection(),
   };
 }

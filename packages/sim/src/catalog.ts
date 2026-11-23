@@ -13,8 +13,9 @@ export interface KindSpec {
   perCpu?: number;
   /** fixed rps capacity per replica for unsized kinds */
   cap?: number;
-  /** fixed monthly cost per replica for unsized kinds */
+  /** fixed monthly cost per replica for unsized kinds (unused since usage-based pricing; kept for older callers) */
   fixed?: number;
+  /** managed-service price vs. the same EC2 size (RDS, ElastiCache), for the size picker */
   costMul?: number;
   canAuto?: boolean;
   async?: boolean;
@@ -30,8 +31,8 @@ export const KINDS: Record<NodeKind, KindSpec> = {
   gateway: { name: 'API Gateway', shape: 'gate', w: 96, h: 150, lat: 4, pass: 1, cap: 60000, fixed: 60, desc: 'Routes requests to services', colors: ['#eef1fd', '#d3dbf7', '#b6c2ee'], tile: '#d3dbf7' },
   app:     { name: 'App Server', shape: 'cube', w: 112, h: 112, lat: 38, pass: 1, perCpu: 150, canAuto: true, desc: 'Runs your API', colors: ['#d3e3f6', '#a9c8ec', '#8db3e2'] },
   worker:  { name: 'Worker', shape: 'cube', w: 104, h: 104, lat: 20, pass: 1, perCpu: 60, canAuto: true, desc: 'Background jobs', colors: ['#efe6da', '#ddcbb4', '#cdb597'] },
-  cache:   { name: 'Cache', shape: 'cube', w: 100, h: 100, lat: 1, pass: 0.2, perCpu: 5000, costMul: 0.6, desc: 'Fast reads', colors: ['#d5f0e4', '#aee0ca', '#93d2b7'] },
-  db:      { name: 'Database', shape: 'db', w: 104, h: 120, lat: 9, pass: 1, perCpu: 120, costMul: 1.4, desc: 'Source of truth', colors: ['#e6e4f8', '#cbc7f0', '#b4afe6'] },
+  cache:   { name: 'Cache', shape: 'cube', w: 100, h: 100, lat: 1, pass: 0.2, perCpu: 5000, costMul: 1.55, desc: 'Fast reads', colors: ['#d5f0e4', '#aee0ca', '#93d2b7'] },
+  db:      { name: 'Database', shape: 'db', w: 104, h: 120, lat: 9, pass: 1, perCpu: 120, costMul: 1.78, desc: 'Source of truth', colors: ['#e6e4f8', '#cbc7f0', '#b4afe6'] },
   store:   { name: 'Object Storage', shape: 'slab', w: 124, h: 100, lat: 25, pass: 1, cap: 50000, fixed: 30, desc: 'Files, images, backups', colors: ['#e9efe0', '#d0dcbd', '#bccb9f'] },
   queue:   { name: 'Queue', shape: 'queue', w: 146, h: 142, lat: 2, pass: 1, cap: 400000, fixed: 40, async: true, desc: 'Buffers async work', colors: ['#f8eec8', '#f0dc9b', '#e7cd7c'] },
   ext:     { name: 'External API', shape: 'cube', w: 104, h: 104, lat: 150, pass: 1, cap: 3000, fixed: 0, desc: 'Payments, email, 3rd party', colors: ['#f1efe8', '#dedbd0', '#cbc7ba'] },
@@ -41,14 +42,15 @@ export const HOT_COLORS: [string, string, string] = ['#f2dbe3', '#e5c0cf', '#d7a
 export const DOWN_COLORS: [string, string, string] = ['#ececea', '#d9d9d6', '#c8c8c4'];
 export const REPLICA_COLORS: [string, string, string] = ['#f1effb', '#dcd8f5', '#cbc6ef'];
 
+/** cost: monthly on-demand price of the matching EC2 instance (see pricing.ts INSTANCES) */
 export interface SizeSpec { cpu: number; ram: number; cost: number }
 
 export const SIZES: SizeSpec[] = [
-  { cpu: 2, ram: 4, cost: 60 },
-  { cpu: 8, ram: 32, cost: 240 },
-  { cpu: 16, ram: 64, cost: 600 },
-  { cpu: 64, ram: 256, cost: 2400 },
-  { cpu: 192, ram: 768, cost: 7200 },
+  { cpu: 2, ram: 4, cost: 62 }, //      c6i.large
+  { cpu: 8, ram: 32, cost: 280 }, //    m6i.2xlarge
+  { cpu: 16, ram: 64, cost: 561 }, //   m6i.4xlarge
+  { cpu: 64, ram: 256, cost: 2243 }, // m6i.16xlarge
+  { cpu: 192, ram: 768, cost: 7064 }, // m7i.48xlarge
 ];
 
 /** visual scale of a sized cube, by size index */

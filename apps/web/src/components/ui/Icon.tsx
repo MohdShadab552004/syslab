@@ -23,6 +23,7 @@ export const ICON = {
   check: 'M5 12l5 5 9-10',
   share: 'M4 12v7h16v-7M12 3v12M7 8l5-5 5 5',
   history: 'M12 21a9 9 0 1 0-9-9M3 4v5h5M12 7v5l3 2',
+  panels: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 5v14M15 5v14',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   power: 'M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0',
   cursor: 'M5 3l14 7-6 2-2 6z',

@@ -14,6 +14,7 @@ export const SIZE_VALUES = ['2vCPU', '8vCPU', '16vCPU', '64vCPU', '192vCPU'] as 
 export const PROTOCOL_VALUES = ['REST', 'gRPC', 'WebSocket', 'Webhook', 'TCP', 'Pub/Sub'] as const;
 export const LB_ALGORITHM_VALUES = ['round_robin', 'weighted', 'least_connections', 'ip_hash'] as const;
 export const COLOR_VALUES = ['blue', 'green', 'orange', 'gray'] as const;
+export const ARROW_HEAD_VALUES = ['none', 'line', 'triangle', 'reverse', 'circle', 'diamond'] as const;
 
 const name = z.string().trim().min(1).max(60);
 
@@ -41,6 +42,15 @@ export const ComponentSpec = z.object({
     syncReplication: z.boolean().optional().describe('true = writes wait for replicas (slower, never stale)'),
     shardKey: z.string().trim().max(40).optional(),
     shardStrategy: z.enum(['hash', 'range', 'geo']).optional(),
+    nodes: z.number().int().min(3).max(24).optional().describe('Cassandra only: nodes in the ring. More nodes = more capacity.'),
+    replicationFactor: z.number().int().min(1).max(5).optional().describe('Cassandra only: copies of every row (default 3, at most the node count).'),
+    consistency: z.enum(['one', 'quorum', 'all']).optional().describe('Cassandra only: replicas a read (and, unless writeConsistency is set, a write) waits for. Default quorum = RF/2 + 1.'),
+    writeConsistency: z.enum(['one', 'quorum', 'all']).optional().describe('Cassandra only: replicas a write waits for, when it differs from reads. R + W > RF gives consistent reads.'),
+    failedNodes: z.number().int().min(0).max(24).optional().describe('Cassandra only: nodes down, to show a partial outage.'),
+    hotKeyShare: z.number().min(0).max(90).optional().describe('Cassandra only: % of traffic on the single hottest partition key (a celebrity user, today\'s bucket). Its replicas overload while other nodes idle.'),
+    keyBuckets: z.number().int().min(1).max(64).optional().describe('Cassandra only: buckets the hot key is salted into (key + bucket), spreading it over more nodes and shrinking its partition.'),
+    partitionMb: z.number().min(0).max(2000).optional().describe('Cassandra only: average partition size in MB (default 10). Over 100 MB slows reads.'),
+    speculativeRetry: z.boolean().optional().describe('Cassandra only: re-send reads slower than p99 to another replica (default true, like Cassandra).'),
     maxConnections: z.number().int().min(10).max(100_000).optional().describe('Max client connections per server. Default: Postgres 100, MySQL 151, no limit for MongoDB/Cassandra/DynamoDB. Use 10000 to model a pooler like PgBouncer.'),
   }).optional().describe('Only for kind db.'),
   loadBalancer: z.object({
@@ -71,6 +81,8 @@ export const ConnectionSpec = z.object({
   callsPerRequest: z.number().int().min(1).max(20).optional().describe('Fan-out: every request through the caller makes this many calls here (e.g. an API that calls 3 services sets 1 on each). Without it, the caller\'s traffic is split across its connections by weight.'),
   retries: z.number().int().min(0).max(3).optional().describe('Times a failed call is retried. Hides short blips but multiplies load on an overloaded target (retry storm).'),
   circuitBreaker: z.boolean().optional().describe('Stop calling the target while it fails (fail fast) so it can recover.'),
+  arrowStart: z.enum(ARROW_HEAD_VALUES).optional().describe('How the line end at the caller is drawn (default none).'),
+  arrowEnd: z.enum(ARROW_HEAD_VALUES).optional().describe('How the line end at the target is drawn (default triangle).'),
 });
 
 export const GroupSpec = z.object({
@@ -97,6 +109,9 @@ export const DesignSpec = z.object({
   dailyActiveUsers: z.number().int().min(0).max(5_000_000_000).optional(),
   readPercent: z.number().int().min(0).max(100).optional().describe('Share of requests that are reads. Default 90.'),
   latencyTargetMs: z.number().int().min(1).max(60_000).optional().describe('P95 latency SLO. Default 200.'),
+  avgResponseKb: z.number().positive().max(100_000).optional().describe('Average API response size in KB (drives data-transfer, load balancer and Kafka cost). Default 10.'),
+  avgFileKb: z.number().positive().max(10_000_000).optional().describe('Average file the CDN serves, in KB (images, video segments). Default 100.'),
+  storageGb: z.number().positive().max(10_000_000).optional().describe('Data kept per database server and in object storage, in GB. Default 500.'),
   components: z.array(ComponentSpec).min(1).max(200),
   connections: z.array(ConnectionSpec).max(800).default([]),
   groups: z.array(GroupSpec).max(50).default([]),

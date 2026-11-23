@@ -122,6 +122,63 @@ the extra connections are refused and that share of queries fails. To fix it:
 
 MongoDB, Cassandra and DynamoDB have no such small cap.
 
+### Ring databases (Cassandra)
+
+Cassandra has no primary: [`ring.ts`](../packages/sim/src/ring.ts) models it as a consistent-hash ring of
+equal nodes. Every row lives on **RF** nodes (replication factor, default 3). A read waits for **R**
+replicas and a write for **W**, each set by its own consistency level: ONE = 1, QUORUM = ⌊RF/2⌋ + 1,
+ALL = RF. Every write still goes to all RF replicas; W only sets how many acks it waits for.
+
+| | Formula |
+|---|---|
+| Work per request | `read·R·p·(1.01 with speculative retry) + write·RF` replica operations, `p` the wide-partition penalty |
+| Hot key | share `h` of traffic lands on one key's replicas: `m = min(live, RF × buckets)` nodes |
+| Busiest node | `ops × (h/m + (1 − h)/live) / per-node capacity`; capacity is the traffic that fills it |
+| Dropped (timeouts) | operations above 100% on each node, as a share of all operations; only requests landing there fail |
+| Latency | `read·L(R)·p + write·L(W)`, L = ×1 ONE, ×1.15 QUORUM, ×1.4 ALL, + 0.5 ms coordinator hop |
+| Wide partitions | partition size / buckets over 100 MB: `p = 1 + (MB − 100)/200` (300 MB → reads ×2) |
+| Speculative retry | on by default (Cassandra's 99p): ~1% more reads, P99 tail cut to ~1.1 × P95 |
+| Failures tolerated | `RF − max(R, W)` nodes, e.g. 1 for RF 3 at QUORUM |
+| Unavailable | reads and writes apart: token ranges with more than `RF − k` replicas on failed nodes (hypergeometric). These fail **at once** (UnavailableException), so they don't drag P95 to the timeout |
+| Stale reads | when `R + W ≤ RF`: chance a read misses the write, `C(RF − W, R) / C(RF, R)` (ONE/ONE on RF 3 = 67%) |
+
+On the canvas the nodes sit in a circle around the database (up to 12 drawn), with gossip lines between
+them. Failed nodes are grey, then the hot key's replicas, coloured by their own load. The warning names
+the worst of: failed nodes, a hot partition, wide partitions, stale reads. The *Ring cluster* card sets
+nodes, RF, read and write levels and failed nodes. The *Partitions & load* card sets the hot key share,
+buckets, partition size and speculative retry. It also shows the busiest node's ReadStage /
+MutationStage (ops, pending by Little's law, dropped) and UnavailableException / timeouts per second.
+
+## 7. Cost (AWS list prices)
+
+[`pricing.ts`](../packages/sim/src/pricing.ts) prices every component the way AWS bills it: us-east-1 on-demand list prices,
+rounded. A real quote comes from the AWS Pricing Calculator; these are realistic orders of magnitude.
+
+| Component | Billed as |
+|---|---|
+| App, worker | EC2 per instance: 2 vCPU c6i.large, 8 m6i.2xlarge, 16 m6i.4xlarge, 64 m6i.16xlarge, 192 m7i.48xlarge |
+| Cache | ElastiCache node (×1.55 the EC2 price; Valkey ×1.24) |
+| Database | RDS (Postgres, MySQL ×1.78), DocumentDB (MongoDB ×1.8) or self-managed EC2, per shard × (1 + replicas) (every ring node for Cassandra), plus storage; DynamoDB per million reads / writes |
+| Object storage | S3 GB-month + GET / PUT requests |
+| CDN | CloudFront GB out (tiered) + HTTPS requests |
+| Load balancer | ALB hour + LCUs, or an Nginx / HAProxy pair on EC2 |
+| API gateway | API Gateway per million requests, or self-hosted on EC2 |
+| Queue | MSK brokers (Kafka), SQS requests, ElastiCache (BullMQ) or a self-hosted cluster |
+| External APIs | SES per email, SMS per message; payments are billed on revenue |
+| Internet egress | Responses served by the origin (not the CDN), tiered per GB |
+
+Usage-based prices follow the live traffic and three sizes in the requirements (API reply KB, CDN file KB,
+GB per database server). The Metrics tab lists the biggest line items and standard ways to save:
+Spot for queue workers, Savings Plans and reserved databases, Graviton, and one size smaller for
+machines with traffic but under 25% busy. Each is estimated on its own; they overlap.
+
+## 8. Over time (Metrics tab)
+
+The editor records one sample per second while the simulation runs (the last 5 minutes). It tracks
+throughput (answered vs. offered), P95 / P99 against the SLO, errors, running instances, queue backlog
+and cost, with ticks for autoscaling events, plus each component's load and latency. `simulate_design`
+returns the same as a `timeline` (one point every 5 seconds) together with a `cost` breakdown.
+
 ## Tests
 
 ```powershell
@@ -141,4 +198,4 @@ pnpm test
 - Steady state per second, not single requests: bursts shorter than a second are averaged out.
 - Service times use a fixed tail shape; real servers can have heavier tails (GC pauses, disk).
 - Memory, network bandwidth, disk IOPS and storage growth are not modelled yet.
-- Prices are list prices of generic machines, not a specific cloud's catalog.
+- Prices are AWS us-east-1 list prices only (no other clouds or regions yet, no free tiers except egress).

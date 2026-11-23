@@ -31,7 +31,7 @@
 .phint { margin-top: auto; font-size: 10.5px; line-height: 1.55; color: var(--muted); padding: 10px; border: 1px dashed #d3d1c9; border-radius: 10px; }
 
 /* inspector column */
-.inspector { flex: 1 1 290px; max-width: 340px; background: var(--surface); border-left: 1px solid var(--line); height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 96px)); overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.inspector { flex: 1 1 300px; max-width: 340px; background: var(--surface); border-left: 1px solid var(--line); height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 96px)); overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 
 /* bottom bars */
 .timeline { background: var(--surface); border-top: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; min-height: 96px; }
@@ -100,7 +100,11 @@
   .editor .connhint, .editor .recbar { top: 124px; left: 8px; right: 8px; }
   .editor .recbar { flex-wrap: wrap; }
   .editor .events { bottom: 64px; left: 12px; }
-  .zoombar { right: 10px; bottom: 10px; }
+  /* compact zoom bar, same height (34px) and bottom gap (12px) as the Add / Design buttons */
+  .editor .zoombar { right: 12px; bottom: 12px; padding: 3px; gap: 0; border-radius: 10px; }
+  .editor .zoombar button { min-width: 26px; height: 26px; padding: 0 4px; }
+  .editor .zoombar .zpct { min-width: 38px; }
+  .editor .zoombar .zsep { margin: 0 1px; }
 
   /* bottom bars */
   .timeline.compact { padding: 0 10px; gap: 8px; }
@@ -115,4 +119,41 @@
   .editor .top .btn-primary { padding: 0 10px; }
   .editor .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .editor .connhint, .editor .recbar { top: 170px; }
+}
+
+/* ---------- Minimize UI (Ctrl+Shift+\): only the canvas, with two floating pills ---------- */
+.minibtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; flex: none; }
+.minibtn:hover { background: var(--surface-2); color: var(--ink); }
+.minirow { display: none; }
+@media (min-width: 901px) {
+  .app.minimal, .app.minimal:has(.timeline.compact) { --top-h: 0px; --bottom-h: 0px; }
+  .app.minimal .top, .app.minimal .palette, .app.minimal .inspector, .app.minimal .timeline { display: none; }
+  /* one row: name pill, metrics, toolbar (pushed right), run controls; wraps when it cannot fit */
+  .app.minimal .minirow { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 30; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; pointer-events: none; }
+  .app.minimal .minirow > * { pointer-events: auto; }
+  .app.minimal .minirow .metrics { position: static; pointer-events: none; }
+  .app.minimal .miniend { margin-left: auto; display: flex; align-items: flex-start; gap: 10px; pointer-events: none; }
+  .app.minimal .miniend > * { pointer-events: auto; }
+  .app.minimal .minirow .toolbar { position: static; }
+  /* same height as the toolbar: 28px buttons inside 5px padding */
+  .app.minimal .minibar { display: flex; align-items: center; gap: 6px; padding: 5px 6px; flex: none;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 2px 0 var(--line); }
+  .app.minimal .minibar.left { max-width: 280px; }
+  .app.minimal .minibar.right { gap: 6px; padding: 5px 5px 5px 10px; }
+  .app.minimal .minibar .minibtn { width: 28px; height: 28px; }
+  .app.minimal .mininame { font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding: 0 4px; }
+}
+@media (max-width: 900px) {
+  .editor .top .minimize { display: none; }
+}
+
+/* Minimize UI row: tighten as the canvas narrows so it stays on one line as long as possible */
+@container hud (max-width: 1910px) {
+  .app.minimal .metric { min-width: 0; padding: 8px 10px; }
+  .app.minimal .mval { font-size: 15px; }
+  .app.minimal .minibar .stext { display: none; }
+}
+@container hud (max-width: 1640px) {
+  .app.minimal .toolbar .btn:not(.keep) { font-size: 0; gap: 0; padding: 0 8px; }
+  .app.minimal .toolbar .btn:not(.keep)::after { font-size: 11px; }
 }

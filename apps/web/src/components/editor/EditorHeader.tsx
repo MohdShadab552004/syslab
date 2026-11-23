@@ -14,6 +14,7 @@ interface Props {
   onSaveVersion: () => void;
   onShare: () => void;
   onHelp: () => void;
+  onMinimize: () => void;
 }
 
 export const EditorHeader = memo(function EditorHeader(p: Props) {
@@ -22,6 +23,9 @@ export const EditorHeader = memo(function EditorHeader(p: Props) {
       <div className="left-top">
         <Link href="/designs" className="btn btn-sm"><Icon path={ICON.chevronLeft} size={13} stroke={2.4} />My designs</Link>
         <input className="nameinput" type="text" value={p.name} onChange={(e) => p.onRename(e.target.value)} aria-label="Design name" />
+        <button type="button" className="minibtn minimize" onClick={p.onMinimize} aria-label="Minimize UI" title="Minimize UI (Ctrl+Shift+\)">
+          <Icon path={ICON.panels} size={15} stroke={2} />
+        </button>
         <span className={cx('saved', p.saveBad && 'bad')}><Icon path={ICON.check} size={12} stroke={2.6} />{p.saveText}</span>
       </div>
       <div className="right-top">

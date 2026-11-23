@@ -29,11 +29,14 @@ import { EdgeInspector } from '@/components/inspector/EdgeInspector';
 import { GroupInspector, HowToCard, MultiInspector, NoteInspector, RequirementsCard, SummaryCard, TrafficCard } from '@/components/inspector/SimpleInspectors';
 import { FlowsPanel } from '@/components/inspector/FlowsPanel';
 import { VersionsPanel } from '@/components/inspector/VersionsPanel';
+import { MetricsPanel } from '@/components/inspector/MetricsPanel';
+import { useMetricsPanel } from '@/hooks/editor/useMetricsPanel';
 import { EditorHeader } from '@/components/editor/EditorHeader';
 import { FlowPlayerBar, LessonTimeline } from '@/components/editor/BottomBars';
 import { ShareModal } from '@/components/editor/ShareModal';
 import { ShortcutsModal } from '@/components/editor/ShortcutsModal';
 import { MobileFabs, Sheet } from '@/components/editor/MobileSheets';
+import { MinimalBar } from '@/components/editor/MinimalBar';
 
 /** Design Lab editor. Hooks own all logic; this file only wires them to components. */
 export default function EditorPage() {
@@ -44,7 +47,8 @@ export default function EditorPage() {
 
   const view = useCanvasView();
   const handlers = useCanvasInteractions();
-  const camera = useCamera();
+  const clearSelection = useEditorStore((s) => s.actions.clearSelection);
+  const camera = useCamera(clearSelection);
   const shortcuts = useEditorShortcuts();
   const mobile = useMobilePanel();
   const chrome = useEditorChrome();
@@ -59,12 +63,13 @@ export default function EditorPage() {
   const dragging = useEditorStore((s) => s.ui.dragging);
   const updateNote = useEditorStore((s) => s.actions.updateNote);
   const journeyBar = useJourneyBar(view?.journey ?? null);
+  const metricsPanel = useMetricsPanel();
 
   if (boot.error) return <div className="empty static center">Could not load this design: {boot.error.message}</div>;
   if (!boot.ready || !view || !metrics || !inspector || !player) return <div className="empty static center">Loading design…</div>;
 
   return (
-    <div className="app editor">
+    <div className={chrome.minimal ? 'app editor minimal' : 'app editor'}>
       <EditorHeader {...chrome.header} onSaveVersion={versions.onSave} onShare={share.onOpen} onHelp={shortcuts.openHelp} />
 
       <div className="main">
@@ -74,8 +79,16 @@ export default function EditorPage() {
         </Sheet>
 
         <Canvas view={view} handlers={handlers} camera={camera} dragging={dragging} onNoteText={(nid, text) => updateNote(nid, { text })}>
-          <MetricsBar metrics={metrics.metrics} />
-          <CanvasToolbar {...chrome.toolbar} />
+          {chrome.minimal ? (
+            <MinimalBar name={chrome.header.name} status={chrome.header.status} running={chrome.header.running}
+              onToggleRun={chrome.header.onToggleRun} onShare={share.onOpen} onRestore={chrome.header.onMinimize}
+              metrics={<MetricsBar metrics={metrics.metrics} />} toolbar={<CanvasToolbar {...chrome.toolbar} />} />
+          ) : (
+            <>
+              <MetricsBar metrics={metrics.metrics} />
+              <CanvasToolbar {...chrome.toolbar} />
+            </>
+          )}
           {chrome.connectHint && <ConnectHint text={chrome.connectHint} />}
           {chrome.recording && <RecordBar {...chrome.recording} />}
           {journeyBar && <JourneyBar {...journeyBar} />}
@@ -104,6 +117,7 @@ export default function EditorPage() {
             </>
           )}
           {chrome.tab === 'flows' && <FlowsPanel items={flows.items} onNew={flows.onNew} />}
+          {chrome.tab === 'metrics' && metricsPanel && <MetricsPanel v={metricsPanel} />}
           {chrome.tab === 'versions' && <VersionsPanel items={versions.items} saveText={chrome.header.saveText} canSave={versions.canSave} onSave={versions.onSave} />}
         </aside>
         </Sheet>

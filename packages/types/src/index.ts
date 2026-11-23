@@ -26,6 +26,9 @@ export interface AutoscaleConfig {
 export type ShardStrategy = 'hash' | 'range' | 'geo';
 export type PartitionStrategy = 'none' | 'time' | 'list' | 'hash';
 
+/** Ring databases (Cassandra): how many replicas a read or write waits for. */
+export type RingConsistency = 'one' | 'quorum' | 'all';
+
 export interface DbConfig {
   replicas: number;
   sync: boolean;
@@ -37,6 +40,24 @@ export interface DbConfig {
   parts: number;
   /** max client connections per database server; 0 = the technology's default (Postgres 100, MySQL 151) */
   maxConn: number;
+  /** ring databases: nodes in the ring; 0 = derived from shards × (1 + replicas), at least 3 */
+  nodes: number;
+  /** ring databases: copies of every row (replication factor); 0 = 3 */
+  rf: number;
+  /** ring databases: replicas a read waits for */
+  consistency: RingConsistency;
+  /** ring databases: replicas a write waits for (every write still goes to all RF replicas) */
+  writeConsistency: RingConsistency;
+  /** ring databases: nodes currently failed (to rehearse outages) */
+  downNodes: number;
+  /** ring databases: % of traffic on the single hottest partition key (0 = evenly spread) */
+  hotShare: number;
+  /** ring databases: buckets the hot key is salted into (1 = no bucketing) */
+  buckets: number;
+  /** ring databases: average partition size, MB (over 100 MB slows reads) */
+  partitionMb: number;
+  /** ring databases: send a read to another replica when the first is slower than its p99 */
+  specRetry: boolean;
 }
 
 /**
@@ -101,6 +122,9 @@ export type EdgeMode = 'sync' | 'async';
 export type Protocol = 'REST' | 'gRPC' | 'WebSocket' | 'Webhook' | 'TCP' | 'Pub/Sub';
 export type EdgeOp = 'read' | 'write' | 'both';
 
+/** How a connection's end is drawn (Figma's line end options). */
+export type ArrowHead = 'none' | 'line' | 'triangle' | 'reverse' | 'circle' | 'diamond';
+
 export interface DesignEdge {
   id: string;
   from: string;
@@ -119,6 +143,10 @@ export interface DesignEdge {
   retries?: number;
   /** circuit breaker: stop calling a failing server for a while and fail fast instead */
   breaker?: boolean;
+  /** end drawn at the target (default triangle) */
+  head?: ArrowHead;
+  /** end drawn at the source (default none) */
+  tail?: ArrowHead;
 }
 
 export type GroupColor = 'blue' | 'green' | 'orange' | 'gray';
@@ -158,6 +186,12 @@ export interface Requirements {
   /** P95 latency target, ms */
   slo: number;
   dataNote: string;
+  /** average API response size, KB (internet egress, load balancer, Kafka throughput); default 10 */
+  respKb?: number;
+  /** average file served by the CDN, KB; default 100 */
+  assetKb?: number;
+  /** data kept per database server and in object storage, GB; default 500 */
+  storageGb?: number;
 }
 
 /** The full editable document. Stored as one JSON column. */

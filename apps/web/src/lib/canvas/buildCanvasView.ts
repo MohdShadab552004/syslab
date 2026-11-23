@@ -1,8 +1,9 @@
-import type { DesignDoc, DesignEdge, DesignNode, NodeKind, Shape } from '@syslab/types';
+import type { DesignDoc, DesignEdge, DesignNode, NodeKind, Shape, ArrowHead } from '@syslab/types';
 import {
   CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
   isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
+  RING_MAX_SHOWN, WIDE_PARTITION_MB, effectivePartitionMb, isRingDb, ringConfig, ringLayout, ringNodeLoads, staleReadShare,
 } from '@syslab/sim';
 import type { FlowPlayback, JourneyPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
@@ -100,7 +101,9 @@ export interface LineView {
   retract: boolean;
   tag?: LineTagView;
   /** curved or elbow line: SVG path data and arrowhead (x / y / len / ang are then unused) */
-  path?: { d: string; arrow: { x: number; y: number; ang: number } };
+  path?: { d: string; arrow: { x: number; y: number; ang: number }; start: { x: number; y: number; ang: number } };
+  /** straight line: where the source's rim is along the line (for a tail end) */
+  tailX: number;
 }
 
 export interface EdgeView {
@@ -127,12 +130,16 @@ export interface EdgeView {
   labelY: number;
   /** drag handles at both ends (selected edge only) */
   handles: { from: Point; to: Point } | null;
+  /** how the target end and the source end are drawn */
+  head: ArrowHead;
+  tail: ArrowHead;
 }
 
 /** Dashed line from the fixed end of a connection to the cursor while its other end is dragged. */
 export interface RewireView { x: number; y: number; len: number; ang: number; dotX: number; dotY: number; valid: boolean }
 
-export interface ReplicationLineView extends LineView { sync: boolean }
+/** sync: synchronous replica; gossip: the chatter between the nodes of a ring database */
+export interface ReplicationLineView extends LineView { sync: boolean; gossip?: boolean }
 
 export interface FlowSegmentView { key: string; x: number; y: number; len: number; ang: number; state: 'past' | 'cur' | 'next' | 'rec'; token: boolean }
 
@@ -186,6 +193,8 @@ export interface CanvasUi {
 }
 
 const LETTERS = 'ABCDEFGH';
+/** nodes of a ring database are drawn smaller than the database itself */
+export const RING_NODE_SCALE = 0.6;
 const GEO = ['India', 'US', 'EU', 'APAC'];
 
 function loadPill(v: number, down: boolean): LoadPillView {
@@ -238,16 +247,19 @@ type RouteMode = ViewPrefs['route'];
 
 /** The routed path of a line, or null for a straight one. */
 function routeOf(mode: RouteMode, a: Point, b: Point, ends: Ends): Route | null {
-  if (mode === 'elbow') return elbowRoute(a, b, ends.toR);
+  if (mode === 'elbow') return elbowRoute(a, b, ends.toR, ends.fromR);
   if (mode === 'curve') return curveRoute(a, b, ends);
   return null;
 }
 
 function line(key: string, a: Point, b: Point, targetRadius: number, pk: PacketView[], retract = false, mode: RouteMode = 'straight', ends?: Ends): LineView {
   const s = segment(a, b);
-  const lv: LineView = { key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11), packets: retract ? [] : pk, retract };
+  const lv: LineView = {
+    key, x: s.x, y: s.y, len: +s.len.toFixed(1), ang: +s.ang.toFixed(2), arrowX: Math.max(0, s.len - targetRadius - 11),
+    tailX: Math.min(Math.max(0, ends?.fromR ?? 0), Math.max(0, s.len - 4)), packets: retract ? [] : pk, retract,
+  };
   const r = retract ? null : routeOf(mode, a, b, ends ?? { fromR: 0, toR: targetRadius + 2 });
-  if (r) lv.path = { d: r.d, arrow: r.arrow };
+  if (r) lv.path = { d: r.d, arrow: r.arrow, start: r.start };
   return lv;
 }
 
@@ -515,6 +527,8 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       labelX: Math.round(mid.x),
       labelY: Math.round(mid.y),
       handles,
+      head: e.head ?? 'triangle',
+      tail: e.tail ?? 'none',
     });
   }
 
@@ -544,6 +558,19 @@ export function buildCanvasView(doc: DesignDoc, sim: SimResult, ui: CanvasUi): C
       const pk: PacketView[] = live ? [0, 1].map((i) => ({ key: `${key}-${i}`, dur: dur.toFixed(2), delay: (-(i * dur) / 2).toFixed(2), fail: false })) : [];
       replication.push({ ...line(key, p, q, (Math.min(k.w, k.h) / 2 - 4) * DB_REPLICA_SCALE, pk), sync: D.sync });
     }));
+  }
+
+  for (const n of doc.nodes) {
+    if (!isRingDb(n) || ownerOf('node', n.id)) continue;
+    const pts = ringLayout(n), k = KINDS[n.kind], rr = (Math.min(k.w, k.h) / 2 - 4) * RING_NODE_SCALE;
+    const live = ui.running && !n.down;
+    const pairs: [number, number][] = pts.map((_, i) => [i, (i + 1) % pts.length]);
+    if (pts.length >= 6) pts.forEach((_, i) => { if (i % 2 === 0) pairs.push([i, (i + 2) % pts.length]); });
+    pairs.forEach(([a, b], j) => {
+      const key = `${n.id}-g${j}`;
+      const pk: PacketView[] = live ? [{ key: `${key}-0`, dur: '3.20', delay: (-(j * 0.7) % 3.2).toFixed(2), fail: false }] : [];
+      replication.push({ ...line(key, pts[a], pts[b], rr, pk), sync: false, gossip: true });
+    });
   }
 
   /* ---------- flow overlay ---------- */
@@ -669,7 +696,41 @@ function buildNode(
     });
   }
 
-  if (n.kind === 'db') {
+  if (n.kind === 'db' && isRingDb(n)) {
+    // Leaderless ring: the database in the middle is the coordinator the callers talk to; its
+    // nodes sit around it, the first `down` of them failed.
+    const cfg = ringConfig(n);
+    const r = sim.ring?.[n.id] ?? { ...cfg, ...ringNodeLoads(cfg, 1, 0.9, 0), unavailable: 0, stale: staleReadShare(cfg.rf, cfg.k, cfg.kw) };
+    const pts = ringLayout(n), node = loadPill(sim.dbLoad[n.id]?.w ?? ld, n.down);
+    const live = r.nodes - r.down, skewed = r.hot > 0 && r.hotNodes < live;
+    const hotPill = loadPill(r.hotLoad, n.down), coldPill = loadPill(r.coldLoad, n.down);
+    load = node;
+    const CL = r.cl === r.wcl ? r.cl.toUpperCase() : `R ${r.cl.toUpperCase()} / W ${r.wcl.toUpperCase()}`;
+    below = `${n.label} · ring of ${r.nodes} · RF ${r.rf} · ${CL}`;
+    pts.forEach((p, i) => {
+      // failed nodes first, then the hot key's replicas (next to each other, like SimpleStrategy)
+      const dead = n.down || i < r.down;
+      const pill = dead ? loadPill(0, true) : skewed ? (i < r.down + r.hotNodes ? hotPill : coldPill) : node;
+      extras.push({
+        key: `${n.id}-n${i}`, dx: p.x - p0.x, dy: p.y - p0.y, shape: 'db', w: k.w, h: k.h, scale: RING_NODE_SCALE,
+        colors: dead ? DOWN_COLORS : repColors(pill), icon: ICONS.db, label: '', bands: false, load: pill,
+        below: i === 0 && r.nodes > RING_MAX_SHOWN ? { text: `+${r.nodes - RING_MAX_SHOWN} more nodes`, info: true } : null, draining: false,
+      });
+    });
+    const pct = (v: number) => `${Math.max(1, Math.round(v * 100))}%`;
+    const mb = effectivePartitionMb(r);
+    if (n.down) { /* the offline warning stays */ } else if (r.down > 0) {
+      warn = r.unavailable > 0
+        ? `${r.down} of ${r.nodes} nodes down · ${pct(r.unavailable)} of requests below ${CL}`
+        : `${r.down} of ${r.nodes} nodes down · still ${CL}`;
+    } else if (skewed && r.hotLoad > r.coldLoad * 1.5) {
+      warn = `hot partition · ${r.hotNodes} of ${live} nodes at ${pct(r.hotLoad)}, the rest ${pct(r.coldLoad)}`;
+    } else if (mb > WIDE_PARTITION_MB) {
+      warn = `wide partitions · ${Math.round(mb)} MB (keep under ${WIDE_PARTITION_MB} MB)`;
+    } else if (r.stale > 0) {
+      warn = `R + W ≤ RF · up to ${pct(r.stale)} of fresh reads stale`;
+    }
+  } else if (n.kind === 'db') {
     const D = dbConfig(n);
     bands = D.partition !== 'none';
     const partTxt = bands ? `${D.parts} partitions by ${D.partKey}` : '';

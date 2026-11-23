@@ -1,14 +1,16 @@
 'use client';
 
 import { useMemo } from 'react';
-import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
+import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy, ArrowHead } from '@syslab/types';
 import {
-  CACHE_HIT, GROUP_COLORS, ICONS, KINDS, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
+  CACHE_HIT, isRingDb, DEFAULT_ASSET_KB, DEFAULT_RESP_KB, DEFAULT_STORAGE_GB, GROUP_COLORS, ICONS, KINDS, sizesOf, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
 } from '@syslab/sim';
 import { canRewire, useEditorStore, type EdgeEnd, type EditorActions } from './editor.store';
+import { ringView, type RingView } from './ringView';
 import { groupMembers } from '@/lib/canvas/groups';
 import { useSimulation } from './useSimulation';
+import { nodeTrend, type Sample } from '@/lib/metrics/history';
 
 /* ---------- generic option model, rendered by <OptionGroup> ---------- */
 export interface OptionView { key: string; label: string; sub?: string; active: boolean; onSelect: () => void }
@@ -60,6 +62,8 @@ export interface NodeInspectorView {
     writeLoad: string;
     readLoad: string;
     conns: { text: string; bad: boolean; options: OptionView[]; hint: string } | null;
+    /** ring databases (Cassandra): nodes, replication, consistency, load skew, thread pools */
+    ring: RingView | null;
   } | null;
   perf: {
     note: string;
@@ -96,7 +100,7 @@ export interface NodeInspectorView {
     onPurge: (() => void) | null;
   } | null;
   replicas: StepperView | null;
-  stats: { incoming: string; capacity: string; load: LoadView; latency: string; cost: string } | null;
+  stats: { incoming: string; capacity: string; load: LoadView; latency: string; cost: string; costDetail: string; trend: { load: number[]; latency: number[] } | null } | null;
   connections: { key: string; text: string; onRemove: () => void }[];
   downLabel: string;
   onToggleDown: () => void;
@@ -119,9 +123,18 @@ export interface EdgeInspectorView {
   share: string;
   rps: string;
   onSlowPath: string;
+  /** how each end of the line is drawn, like Figma's stroke end points */
+  arrows: { start: ArrowPickView[]; end: ArrowPickView[]; onSwap: () => void };
   onReverse: () => void;
   onDelete: () => void;
 }
+
+export interface ArrowPickView { key: ArrowHead; label: string; active: boolean; onSelect: () => void }
+
+/** Line end options in Figma's order. */
+export const ARROW_HEADS: [ArrowHead, string][] = [
+  ['none', 'None'], ['line', 'Line arrow'], ['triangle', 'Triangle arrow'], ['reverse', 'Reversed triangle'], ['circle', 'Circle arrow'], ['diamond', 'Diamond arrow'],
+];
 
 export interface GroupInspectorView {
   label: string;
@@ -140,6 +153,10 @@ export interface RequirementsView {
   read: number; readText: string; onRead: (v: number) => void;
   slo: number; onSlo: (v: number) => void;
   dataNote: string; onDataNote: (v: string) => void;
+  /** sizes that drive the cost: API response KB, CDN file KB, GB per database server */
+  respKb: number; onRespKb: (v: number) => void;
+  assetKb: number; onAssetKb: (v: number) => void;
+  storageGb: number; onStorageGb: (v: number) => void;
 }
 
 export interface TrafficView { slider: number; onSlider: (v: number) => void; presets: OptionView[] }
@@ -162,7 +179,7 @@ export interface MultiInspectorView {
 }
 
 /* ---------- builders ---------- */
-export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions): NodeInspectorView {
+export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions, history?: Sample[]): NodeInspectorView {
   const k = KINDS[n.kind], id = n.id, ld = sim.load[id] ?? 0;
   const hot = !n.down && isOver(ld), busy = !n.down && ld >= 0.7;
   const auto = isHorizontalAuto(n), autoV = isVerticalAuto(n), as = n.autoscale;
@@ -223,6 +240,7 @@ export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: Edito
         : ({ time: `One partition per period of ${pkey}. Old months can be archived or dropped instantly.`, list: `Rows grouped by a value of ${pkey}, like country or status.`, hash: `Rows spread across ${D.parts} partitions by hash(${pkey}).` }[D.partition]) + ` Queries that filter on ${pkey} scan less, ~30% faster.`,
       writeLoad: loadView(dl.w, n.down).pct,
       readLoad: loadView(dl.r, n.down).pct,
+      ring: isRingDb(n) ? ringView(n, doc, sim, a) : null,
       conns: (() => {
         const limitPer = dbConnLimit(n);
         if (!limitPer) return null;
@@ -395,6 +413,8 @@ export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: Edito
       load: loadView(ld, n.down),
       latency: k.async ? 'async' : `${Math.round(sim.nodeLatency[id] ?? k.lat)} ms`,
       cost: fmtMoney(sim.nodeCost[id] ?? 0),
+      costDetail: sim.nodeCostDetail?.[id]?.detail ?? '',
+      trend: history ? nodeTrend(history, id) : null,
     },
     connections,
     downLabel: n.down ? 'Bring online' : 'Take offline',
@@ -453,6 +473,17 @@ export function edgeView(e: DesignEdge, doc: DesignDoc, sim: SimResult, a: Edito
       : (e.calls ?? 0) > 0 ? `${e.calls}× every request` : `${Math.round((w / sumW) * 100)}% of ${from.label}`,
     rps: `${fmtCompact(sim.edgeRps[e.id] ?? 0)} rps`,
     onSlowPath: e.mode === 'async' ? 'No (async)' : sim.onSlowPath[e.id] ? 'Yes, slowest path' : 'No',
+    arrows: (() => {
+      const head = e.head ?? 'triangle', tail = e.tail ?? 'none';
+      const pick = (cur: ArrowHead, set: (v: ArrowHead) => void): ArrowPickView[] =>
+        ARROW_HEADS.map(([key, label]) => ({ key, label, active: key === cur, onSelect: () => set(key) }));
+      return {
+        start: pick(tail, (v) => a.updateEdge(e.id, { tail: v })),
+        end: pick(head, (v) => a.updateEdge(e.id, { head: v })),
+        // swap only the drawing; Reverse flips which way traffic flows
+        onSwap: () => a.updateEdge(e.id, { head: tail, tail: head }),
+      };
+    })(),
     onReverse: () => a.reverseEdge(e.id),
     onDelete: () => a.deleteEdge(e.id),
   };
@@ -467,6 +498,7 @@ export function useInspector(): InspectorView | null {
   const multi = useEditorStore((s) => s.ui.multi);
   const a = useEditorStore((s) => s.actions);
   const sim = useSimulation();
+  const history = useEditorStore((s) => s.history);
 
   return useMemo<InspectorView | null>(() => {
     if (!doc || !sim) return null;
@@ -488,7 +520,7 @@ export function useInspector(): InspectorView | null {
     }
     if (sel?.type === 'node') {
       const n = doc.nodes.find((x) => x.id === sel.id);
-      if (n) return { kind: 'node', node: nodeView(n, doc, sim, a) };
+      if (n) return { kind: 'node', node: nodeView(n, doc, sim, a, history) };
     }
     if (sel?.type === 'edge') {
       const e = doc.edges.find((x) => x.id === sel.id);
@@ -517,6 +549,8 @@ export function useInspector(): InspectorView | null {
     if (sel?.type === 'note' && doc.notes.some((t) => t.id === sel.id)) return { kind: 'note', onDelete: () => a.deleteNote(sel.id) };
 
     const r = doc.requirements;
+
+    const sizes = sizesOf(doc);
     return {
       kind: 'none',
       lesson: !!doc.lesson,
@@ -527,6 +561,9 @@ export function useInspector(): InspectorView | null {
         read: r.read, readText: `${r.read}% reads · ${100 - r.read}% writes`, onRead: (v) => a.setRequirements({ read: v }),
         slo: r.slo, onSlo: (v) => a.setRequirements({ slo: Math.max(1, v || 1) }),
         dataNote: r.dataNote, onDataNote: (v) => a.setRequirements({ dataNote: v }),
+        respKb: sizes.respKb, onRespKb: (v) => a.setRequirements({ respKb: Math.max(0.1, v || DEFAULT_RESP_KB) }),
+        assetKb: sizes.assetKb, onAssetKb: (v) => a.setRequirements({ assetKb: Math.max(1, v || DEFAULT_ASSET_KB) }),
+        storageGb: sizes.storageGb, onStorageGb: (v) => a.setRequirements({ storageGb: Math.max(1, v || DEFAULT_STORAGE_GB) }),
       },
       traffic: {
         // log scale: 1K .. 10M users over 0..80
@@ -538,5 +575,5 @@ export function useInspector(): InspectorView | null {
         presets: opts(USER_PRESETS, doc.users, (u) => a.setUsers(u)),
       },
     };
-  }, [doc, sel, multi, sim, a]);
+  }, [doc, sel, multi, sim, a, history]);
 }

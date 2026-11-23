@@ -15,6 +15,8 @@ export interface TechProfile {
   conn?: number;
   /** queues: every subscriber gets every message by default (topics), instead of sharing them */
   pubsub?: boolean;
+  /** databases: a leaderless ring (nodes, replication factor, consistency level) instead of primary + replicas */
+  ring?: boolean;
   /** one line shown in the inspector */
   note: string;
 }
@@ -43,7 +45,7 @@ export const TECH_PROFILES: Partial<Record<NodeKind, Record<string, TechProfile>
     Postgres: { cap: 1, lat: 1, conn: 100, note: 'Default max_connections is 100; each connection is a process.' },
     MySQL: { cap: 1.1, lat: 0.95, conn: 151, note: 'Default max_connections is 151; thread per connection.' },
     MongoDB: { cap: 1.2, lat: 1.1, note: 'Document store; no small connection cap by default.' },
-    Cassandra: { cap: 1.8, lat: 1.3, note: 'Write-optimised (LSM tree); reads cost more; scales by adding nodes.' },
+    Cassandra: { cap: 1.8, lat: 1.3, ring: true, note: 'Leaderless ring: every node is equal, each row lives on RF nodes, reads and writes wait for a consistency level. Scales by adding nodes.' },
     DynamoDB: { cap: 3, lat: 0.9, note: 'Managed and partitioned; scales with provisioned capacity.' },
   },
   queue: {

@@ -4,6 +4,8 @@ import { autoscale, dbConfig, lbConfig, queueConfig } from './factory';
 import { balance, type Backend } from './balancer';
 import { SERVICE_P95, SERVICE_P99, queueTimes, workersFor } from './queueing';
 import { techProfile } from './techs';
+import { egressCost, priceNode, sizesOf, type NodePrice } from './pricing';
+import { isRingDb, ringCapacity, ringConfig, ringLatencyFactor, ringNodeLoads, ringUnavailable, staleReadShare, type RingStat } from './ring';
 
 /** Mutable runtime state that lives on the client, never persisted. */
 export interface Runtime {
@@ -91,6 +93,8 @@ export interface SimResult {
   lbBackends: Record<string, LbBackendStat[]>;
   /** per-queue backlog */
   queue: Record<string, QueueStat>;
+  /** ring databases: their ring and the share of rows that cannot reach the consistency level */
+  ring: Record<string, RingStat>;
   /** offline caches whose reads were sent on to the database instead of failing */
   cacheBypass: Record<string, boolean>;
   /** live caches backed by a database: false while every database behind it is offline (misses cannot refill) */
@@ -113,7 +117,12 @@ export interface SimResult {
   retryAmp: Record<string, number>;
   /** edges whose circuit breaker is open (calls fail fast) */
   breakerOpen: Record<string, boolean>;
+  /** monthly price of each component (AWS list prices, see pricing.ts) */
   nodeCost: Record<string, number>;
+  /** how each component's price is made (service, instance type, category) */
+  nodeCostDetail: Record<string, NodePrice>;
+  /** internet data transfer for responses served from the origin */
+  egress: { monthly: number; gb: number };
   /** mean latency a request spends in this node (service + waiting), ms */
   nodeLatency: Record<string, number>;
   onSlowPath: Record<string, boolean>;
@@ -165,11 +174,15 @@ export function capacityPerInstance(n: DesignNode, sizeIdx = n.size): number {
 }
 
 /** Time one request takes on an idle instance, ms (measured, or the kind × technology estimate). */
-export function serviceTime(n: DesignNode): number {
+export function serviceTime(n: DesignNode, read = 0.9): number {
   if (n.kind === 'users') return 0;
   const m = n.measured?.ms;
   if (m && m > 0) return m;
   let base = KINDS[n.kind].lat * techProfile(n).lat;
+  if (n.kind === 'db' && isRingDb(n)) {
+    // a coordinator node forwards to replicas and waits for k of them (reads and writes apart)
+    return base * ringLatencyFactor(ringConfig(n), read) + 0.5;
+  }
   if (n.kind === 'db') {
     const D = dbConfig(n);
     if (D.partition !== 'none') base *= 0.7;
@@ -262,7 +275,12 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
   /** a dead read-through cache passes traffic on; any other dead node fails it */
   const passesWhenDown = (t: DesignNode) => t.kind === 'cache' && out.get(t.id)!.length > 0;
   /** rps a target node could take right now (0 when offline) */
-  const capOf = (t: DesignNode) => (t.down ? 0 : t.kind === 'users' ? Infinity : per[t.id] * reps[t.id] * (t.kind === 'db' ? dbConfig(t).shards : 1));
+  const capOf = (t: DesignNode) => (t.down ? 0 : t.kind === 'users' ? Infinity
+    : isRingDb(t) ? ringCapacity(ringConfig(t), per[t.id], read)
+    : per[t.id] * reps[t.id] * (t.kind === 'db' ? dbConfig(t).shards : 1));
+  const ring: SimResult['ring'] = {};
+  /** share of arrivals a node rejects instantly (a ring without enough live replicas: UnavailableException) */
+  const ownFast: Record<string, number> = {};
 
   for (const n of nodes) {
     const k = KINDS[n.kind];
@@ -270,7 +288,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     inflow[n.id] = 0;
     sizeIdx[n.id] = isVerticalAuto(n) ? (rt.autoSize[n.id] ?? a.minSize) : n.size;
     per[n.id] = n.kind === 'users' ? Infinity : capacityPerInstance(n, sizeIdx[n.id]);
-    service[n.id] = serviceTime(n);
+    service[n.id] = serviceTime(n, read);
     workers[n.id] = workersFor(per[n.id], service[n.id]);
     needsLB[n.id] = !!(k.canAuto && (isHorizontalAuto(n) || n.replicas > 1) && anyIn[n.id] && !lbIn[n.id]);
     reps[n.id] = needsLB[n.id] ? 1 : isHorizontalAuto(n) ? (rt.autoRep[n.id] ?? a.min) : n.replicas;
@@ -294,7 +312,21 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     let c = n.kind === 'users' ? Infinity : per[id] * reps[id];
     /** share of requests that get a database connection at all */
     let connOk = 1;
-    if (n.kind === 'db') {
+    /** a ring serves per node: a hot partition overloads its replicas while the rest idle */
+    let ringServed: number | null = null;
+    if (n.kind === 'db' && isRingDb(n)) {
+      // Ring: writes go to every replica, reads ask k of them, failed nodes serve nothing, and rows
+      // whose live replicas are fewer than the consistency level fail at once (UnavailableException).
+      const r = ringConfig(n);
+      const L = ringNodeLoads(r, per[id], read, inn);
+      const unavailable = ringUnavailable(r, read);
+      ring[id] = { ...r, ...L, unavailable, stale: staleReadShare(r.rf, r.k, r.kw) };
+      c = L.cap;
+      dbLoad[id] = { w: L.hotLoad, r: L.hotLoad };
+      connOk = 1 - unavailable;
+      ringServed = inn * connOk * (1 - L.drop);
+      ownFast[id] = inn > 0 ? unavailable : 0;
+    } else if (n.kind === 'db') {
       const D = dbConfig(n), base = per[id] * D.shards, R = D.replicas, wr = 1 - read, rd = read;
       if (R > 0) {
         c = Math.min(wr > 0 ? base / wr : Infinity, rd > 0 ? (base * R) / rd : Infinity);
@@ -333,7 +365,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
       repLoad[id] = ri.map((x) => x / perRep);
       load[id] = Math.max(...repLoad[id]);
     } else {
-      served = bypass ? inn : Math.min(inn * connOk, c);
+      served = bypass ? inn : ringServed != null && !n.down ? ringServed : Math.min(inn * connOk, c);
       load[id] = c === Infinity ? 0 : c > 0 ? inn / c : inn > 0 ? 9 : 0;
       repLoad[id] = ri.map(() => load[id]);
     }
@@ -482,16 +514,20 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     }
   }
 
-  const nodeCost: Record<string, number> = {};
+  // Monthly bill at AWS list prices: instances for sized components, usage for the rest
+  // (requests, GB out, brokers), plus internet data transfer for what the origin serves.
+  const nodeCost: Record<string, number> = {}, nodeCostDetail: Record<string, NodePrice> = {};
+  const sz = sizesOf(doc);
   let cost = 0;
   for (const n of nodes) {
-    const k = KINDS[n.kind];
-    const D = n.kind === 'db' ? dbConfig(n) : null;
-    const unit = k.perCpu ? SIZES[sizeIdx[n.id]].cost * (k.costMul ?? 1) : (k.fixed ?? 0);
-    const c = unit * reps[n.id] * (D ? D.shards * (1 + D.replicas) : 1);
-    nodeCost[n.id] = c;
-    cost += c;
+    const p = priceNode(n, { rps: n.kind === 'users' ? 0 : inflow[n.id] ?? 0, sizeIdx: sizeIdx[n.id], reps: reps[n.id], read, ...sz });
+    nodeCostDetail[n.id] = p;
+    nodeCost[n.id] = p.monthly;
+    cost += p.monthly;
   }
+  const originRps = edges.reduce((s, e) => s + (byId.get(e.from)?.kind === 'users' && byId.get(e.to)?.kind !== 'cdn' ? edgeRps[e.id] ?? 0 : 0), 0);
+  const egress = egressCost(originRps, sz.respKb);
+  cost += egress.monthly;
 
   // User-facing errors, bottom-up: the share of requests arriving at a node that end up failing.
   // A request fails if this node drops it, or if a call it needs fails. Fan-out calls must all
@@ -517,7 +553,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     }
     const down = 1 - okAll * (1 - Math.min(1, splitFail));
     fail[id] = 1 - (1 - f) * (1 - down);
-    fast[id] = (1 - f) * (1 - fastOk * (1 - Math.min(1, splitFast)));
+    fast[id] = Math.min(fail[id], (ownFast[id] ?? 0) + (1 - f) * (1 - fastOk * (1 - Math.min(1, splitFast))));
   }
   const sources = nodes.filter((n) => n.kind === 'users');
   const errorRate = rps > 0 && sources.length ? Math.min(1, sources.reduce((s, n) => s + fail[n.id], 0) / sources.length) : 0;
@@ -553,7 +589,9 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
       waitMs[id] = q.meanWait;
       mean = latencyAt(workers[id], S, load[id] ?? 0);
       s95 = Math.max(0, S * SERVICE_P95 + q.p95Wait - mean);
-      s99 = Math.max(0, S * SERVICE_P99 + q.p99Wait - mean);
+      // speculative retry asks another replica once the first is slower than its p99: the tail shrinks
+      const tail = ring[id]?.specRetry ? SERVICE_P95 * 1.1 : SERVICE_P99;
+      s99 = Math.max(0, S * tail + q.p99Wait - mean);
     }
     nodeLatency[id] = n.kind === 'users' ? 0 : mean;
     pMean[id] = mean + dMean;
@@ -584,8 +622,8 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
   return {
     users, rps, byId, inflow, cap, load, edgeRps, reps, sizeIdx, desiredReps, desiredSize,
     needsLB, dbLoad, repLoad, edgeRepRps, lbBackends, queue, cacheBypass, cacheRefill, cacheHit,
-    perInstance: per, service, workers, waitMs, dropFrac, dbConns, retryAmp, breakerOpen,
-    nodeCost, nodeLatency, onSlowPath, errorRate, fastFailRate, meanLatency, p95, p99, cost,
+    perInstance: per, service, workers, waitMs, dropFrac, dbConns, retryAmp, breakerOpen, ring,
+    nodeCost, nodeCostDetail, egress, nodeLatency, onSlowPath, errorRate, fastFailRate, meanLatency, p95, p99, cost,
   };
 }
 

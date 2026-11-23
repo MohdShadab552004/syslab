@@ -54,6 +54,29 @@ describe('regressions', () => {
     }));
     const r = simulationReport(doc, { seconds: 3 });
     expect(r.errorRatePercent).toBeGreaterThan(50);
-    expect(r.text).toMatch(/Latency only counts answered requests: \d+% were rejected instantly by an open circuit breaker\./);
+    expect(r.text).toMatch(/Latency only counts answered requests: \d+% failed fast \(an open circuit breaker, or a ring without enough live replicas\)\./);
+  });
+});
+
+describe('sizes used for the cost', () => {
+  test('the spec sets them, readback returns them, and the report prices with them', () => {
+    const base = { components: [c('Users', 'users'), c('API', 'app'), c('Files', 'store')], connections: [{ from: 'Users', to: 'API' }, { from: 'API', to: 'Files', callsPerRequest: 1 }] };
+    const sized = buildDesign(spec({ ...base, avgResponseKb: 2, avgFileKb: 500, storageGb: 50 }));
+    expect(sized.doc.requirements).toMatchObject({ respKb: 2, assetKb: 500, storageGb: 50 });
+    const back = docToSpec('x', sized.doc);
+    expect(back).toMatchObject({ avgResponseKb: 2, avgFileKb: 500, storageGb: 50 });
+    const plain = buildDesign(spec(base));
+    expect(plain.doc.requirements.respKb).toBeUndefined();
+    expect(docToSpec('x', plain.doc)).not.toHaveProperty('avgResponseKb');
+    // smaller replies and less stored data cost less
+    expect(simulationReport(sized.doc, { seconds: 0 }).monthlyCostUsd).toBeLessThan(simulationReport(plain.doc, { seconds: 0 }).monthlyCostUsd);
+  });
+
+  test('the report lists categories and savings only when there are some', () => {
+    const free = buildDesign(spec({ components: [c('Users', 'users'), c('Pay', 'ext', { tech: 'Payment gateway' })], connections: [{ from: 'Users', to: 'Pay' }] }));
+    const r = simulationReport(free.doc, { seconds: 0 });
+    expect(r.text).not.toContain('Ways to save');
+    expect(r.cost.savings).toEqual([]);
+    expect(r.cost.topItems.map((i) => i.component)).toEqual(['Data transfer out']);
   });
 });

@@ -1,5 +1,5 @@
 import type { DesignDoc, DesignEdge, DesignGroup, DesignNode, DesignNote, NodeKind } from '@syslab/types';
-import { DEFAULT_AUTOSCALE, DEFAULT_REQUIREMENTS, KINDS, blankDoc, makeEdge, makeNode } from '@syslab/sim';
+import { DEFAULT_AUTOSCALE, DEFAULT_REQUIREMENTS, KINDS, blankDoc, isRingDb, makeEdge, makeNode } from '@syslab/sim';
 import { DesignSpec, SIZE_VALUES, type ComponentSpec, type DesignSpecInput } from './schema';
 import { layout } from './layout';
 
@@ -43,6 +43,9 @@ function suggest(name: string, known: string[]): string {
  * Validate a spec and turn it into an editor document with ids, settings and a laid-out diagram.
  * Throws SpecError with every problem at once (not just the first) so the caller can fix them together.
  */
+/** database fields that only mean something on a ring database */
+const RING_FIELDS = ['nodes', 'replicationFactor', 'consistency', 'writeConsistency', 'failedNodes', 'hotKeyShare', 'keyBuckets', 'partitionMb', 'speculativeRetry'] as const;
+
 export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
   const parsed = DesignSpec.safeParse(input);
   if (!parsed.success) {
@@ -89,6 +92,8 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       ...(cn.callsPerRequest && { calls: cn.callsPerRequest }),
       ...(cn.retries && { retries: cn.retries }),
       ...(cn.circuitBreaker && { breaker: true }),
+      ...(cn.arrowEnd && cn.arrowEnd !== 'triangle' && { head: cn.arrowEnd }),
+      ...(cn.arrowStart && cn.arrowStart !== 'none' && { tail: cn.arrowStart }),
     }));
     if ((cn.callsPerRequest || cn.retries || cn.circuitBreaker) && (a.kind === 'lb' || a.kind === 'queue')) warnings.push(`callsPerRequest / retries / circuitBreaker on ${cn.from} → ${cn.to} are ignored: a ${a.kind === 'lb' ? 'load balancer' : 'queue'} decides how traffic moves.`);
   });
@@ -125,13 +130,25 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
     }
     if (c.database) {
       if (kind !== 'db') warnings.push(`database settings on "${c.name}" were ignored: it is not a db.`);
-      else over.dbc = {
+      else if (RING_FIELDS.some((f) => c.database![f] != null) && !isRingDb({ kind, tech: c.tech ?? '' })) {
+        warnings.push(`${RING_FIELDS.filter((f) => c.database![f] != null).join(' / ')} on "${c.name}" only apply to ring databases (tech "Cassandra"); they were ignored.`);
+      }
+      if (kind === 'db') over.dbc = {
         ...(c.database.shards != null && { shards: c.database.shards }),
         ...(c.database.readReplicas != null && { replicas: c.database.readReplicas }),
         ...(c.database.syncReplication != null && { sync: c.database.syncReplication }),
         ...(c.database.shardKey && { shardKey: c.database.shardKey }),
         ...(c.database.shardStrategy && { strategy: c.database.shardStrategy }),
         ...(c.database.maxConnections != null && { maxConn: c.database.maxConnections }),
+        ...(c.database.nodes != null && { nodes: c.database.nodes }),
+        ...(c.database.replicationFactor != null && { rf: c.database.replicationFactor }),
+        ...(c.database.consistency && { consistency: c.database.consistency, writeConsistency: c.database.consistency }),
+        ...(c.database.writeConsistency && { writeConsistency: c.database.writeConsistency }),
+        ...(c.database.failedNodes != null && { downNodes: c.database.failedNodes }),
+        ...(c.database.hotKeyShare != null && { hotShare: c.database.hotKeyShare }),
+        ...(c.database.keyBuckets != null && { buckets: c.database.keyBuckets }),
+        ...(c.database.partitionMb != null && { partitionMb: c.database.partitionMb }),
+        ...(c.database.speculativeRetry != null && { specRetry: c.database.speculativeRetry }),
       };
     }
     if (c.loadBalancer) {
@@ -192,6 +209,9 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       dau,
       read: spec.readPercent ?? DEFAULT_REQUIREMENTS.read,
       slo: spec.latencyTargetMs ?? DEFAULT_REQUIREMENTS.slo,
+      ...(spec.avgResponseKb != null && { respKb: spec.avgResponseKb }),
+      ...(spec.avgFileKb != null && { assetKb: spec.avgFileKb }),
+      ...(spec.storageGb != null && { storageGb: spec.storageGb }),
     },
   });
   return { doc, name: spec.name, warnings };

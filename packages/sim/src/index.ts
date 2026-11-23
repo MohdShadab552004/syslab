@@ -4,6 +4,8 @@ export * from './templates';
 export * from './simulate';
 export * from './queueing';
 export * from './techs';
+export * from './pricing';
+export * from './ring';
 export * from './balancer';
 export * from './layout';
 export * from './autoscaler';

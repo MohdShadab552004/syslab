@@ -49,8 +49,8 @@ export const NodeView = memo(function NodeView({ v, onPointerDown, onHover }: Pr
         {v.warn && <WarnPill text={v.warn} />}
         {v.badge && <div className="fbadge">{v.badge}</div>}
         {v.chips.length > 0 && (
-          <div className="chips" title="Shared services this component talks to. Hover or select it to see the lines.">
-            {v.chips.map((c) => <span key={c.key} className={cx('chip', c.hot && 'hot', c.key === 'callers' && 'callers')}>{c.key === 'callers' || c.key === '+more' ? c.text : `→ ${c.text}`}</span>)}
+          <div className="nchips" title="Shared services this component talks to. Hover or select it to see the lines.">
+            {v.chips.map((c) => <span key={c.key} className={cx('nchip', c.hot && 'hot', c.key === 'callers' && 'callers')}>{c.key === 'callers' || c.key === '+more' ? c.text : `→ ${c.text}`}</span>)}
           </div>
         )}
         <div className="ring" />

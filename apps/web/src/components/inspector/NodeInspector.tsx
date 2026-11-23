@@ -1,5 +1,6 @@
 import { Button, Card, Hint, ICON, Icon, LoadBar, OptionGroup, Row, SectionLabel, SelectField, Stepper, Switch, TextField } from '@/components/ui';
 import type { NodeInspectorView } from '@/hooks/editor/useInspector';
+import { Spark } from './Spark';
 
 export function NodeInspector({ v }: { v: NodeInspectorView }) {
   return (
@@ -129,7 +130,39 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
         </Card>
       )}
 
-      {v.db && (
+      {v.db?.ring && (
+        <Card>
+          <div className="row"><SectionLabel>Ring cluster</SectionLabel><span className={v.db.ring.status.bad ? 'v bad' : 'v'}>{v.db.ring.status.text}</span></div>
+          <div className="row"><span className="k">Nodes</span><Stepper label="nodes in the ring" {...v.db.ring.nodes} /></div>
+          <div className="row"><span className="k">Replication factor</span><Stepper label="replication factor" {...v.db.ring.rf} /></div>
+          <div className="flab">Read consistency</div>
+          <OptionGroup layout="grid" options={v.db.ring.readCl} />
+          <div className="flab">Write consistency</div>
+          <OptionGroup layout="grid" options={v.db.ring.writeCl} />
+          <Row label="R + W vs RF" value={v.db.ring.consistency.text} bad={v.db.ring.consistency.bad} />
+          <div className="row"><span className="k">Failed nodes</span><Stepper label="failed nodes" {...v.db.ring.down} /></div>
+          <Hint>{v.db.ring.hint}</Hint>
+        </Card>
+      )}
+
+      {v.db?.ring && (
+        <Card>
+          <SectionLabel>Partitions &amp; load</SectionLabel>
+          <div className="row"><span className="k">Hot key share</span><Stepper label="traffic on the hottest partition key" {...v.db.ring.hotShare} /></div>
+          <div className="row"><span className="k">Key buckets</span><Stepper label="buckets the hot key is salted into" {...v.db.ring.buckets} /></div>
+          <div className="row"><span className="k">Partition size</span><Stepper label="average partition size" {...v.db.ring.partitionMb} /></div>
+          <div className="row"><span className="k">Speculative retry</span><Switch on={v.db.ring.specRetry.on} onToggle={v.db.ring.specRetry.onToggle} label="Toggle speculative retry" /></div>
+          <div className="flab">Busiest node (tpstats)</div>
+          <div className="tpsrow head"><span>Pool</span><span>Ops</span><span>Pending</span><span>Dropped</span></div>
+          {v.db.ring.stages.map((st) => (
+            <div key={st.name} className={st.bad ? 'tpsrow bad' : 'tpsrow'}><span>{st.name}</span><span>{st.ops}</span><span>{st.pending}</span><span>{st.dropped}</span></div>
+          ))}
+          {v.db.ring.errors.map((e) => <Row key={e.label} label={e.label} value={e.value} bad={e.bad} />)}
+          <Hint>{v.db.ring.loadHint}</Hint>
+        </Card>
+      )}
+
+      {v.db && !v.db.ring && (
         <>
           <Card>
             <div className="row"><SectionLabel>Read replicas</SectionLabel><Stepper label="read replicas" {...v.db.replicas} /></div>
@@ -178,6 +211,14 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
           {v.db && <><Row label="Write load (primary)" value={v.db.writeLoad} /><Row label="Read load (each reader)" value={v.db.readLoad} /></>}
           <Row label="Added latency" value={v.stats.latency} />
           <Row label="Cost / month" value={v.stats.cost} />
+          {v.stats.costDetail && <Hint>{v.stats.costDetail}</Hint>}
+          {v.stats.trend && (
+            <div className="trend">
+              <div className="flab">Last 2 minutes</div>
+              <Spark label="Load" points={v.stats.trend.load.map((x) => x * 100)} max={Math.max(100, ...v.stats.trend.load.map((x) => x * 110))} threshold={100} unit="%" height={34} />
+              <Spark label="Latency" points={v.stats.trend.latency} max={Math.max(1, ...v.stats.trend.latency) * 1.1} unit=" ms" height={34} />
+            </div>
+          )}
         </Card>
       )}
 

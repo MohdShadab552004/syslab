@@ -17,6 +17,8 @@ import {
 import type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
 import { groupMembers } from '@/lib/canvas/groups';
 import { loadViewPrefs, saveViewPrefs, type ViewPrefs } from '@/lib/canvas/readability';
+import { loadMinimal, saveMinimal } from '@/lib/editor/chromePrefs';
+import { pushSample, type Sample } from '@/lib/metrics/history';
 import { layout } from '@syslab/spec';
 export type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool };
 
@@ -46,6 +48,8 @@ interface UiState {
   journeyPlay: JourneyPlayback | null;
   /** how the canvas draws the design (per browser) */
   view: ViewPrefs;
+  /** side panels, header and bottom bar hidden (per browser) */
+  minimal: boolean;
 }
 
 export type EdgeEnd = 'from' | 'to';
@@ -64,6 +68,8 @@ export interface EditorState {
   ui: UiState;
   runtime: Runtime;
   events: ScaleEvent[];
+  /** the last few minutes of the running simulation, one sample per second (for the graphs) */
+  history: Sample[];
   /** undo / redo stacks of whole-doc snapshots (immutable, so cheap to keep) */
   past: DesignDoc[];
   future: DesignDoc[];
@@ -77,7 +83,7 @@ interface ClipBundle { nodes: DesignNode[]; groups: DesignGroup[]; notes: Design
 const initialUi: UiState = {
   tool: 'select', sel: null, pending: null, dragging: false, recording: null, flowPlay: null,
   tab: 'inspect', shareOpen: false, toast: null, query: '', running: true, rewire: null, multi: [], marquee: null,
-  hover: null, hoverEdge: null, journeyPlay: null, view: loadViewPrefs(),
+  hover: null, hoverEdge: null, journeyPlay: null, view: loadViewPrefs(), minimal: loadMinimal(),
 };
 
 /** Everything selected right now, as picks (a selected connection is not included). */
@@ -253,6 +259,7 @@ function createActions(set: Set, get: Get) {
         s.saveState = 'idle';
         s.ui = { ...initialUi };
         s.runtime = { ...EMPTY_RUNTIME, autoRep: {}, drain: {}, autoSize: {}, qDepth: {} };
+        s.history = [];
         s.events = [];
       });
     },
@@ -356,6 +363,11 @@ function createActions(set: Set, get: Get) {
     setRewire(r: Rewire | null) { set((s) => { s.ui.rewire = r; }); },
     setDragging(dragging: boolean) { if (dragging) breakMerge(); set((s) => { s.ui.dragging = dragging; }); },
     toggleRunning() { set((s) => { s.ui.running = !s.ui.running; }); },
+    /** Minimize UI (Ctrl+Shift+\\): hide the side panels, header and bottom bar, or bring them back. */
+    toggleMinimal() {
+      set((s) => { s.ui.minimal = !s.ui.minimal; });
+      saveMinimal(get().ui.minimal);
+    },
     setHover(id: string | null) { if (get().ui.hover !== id) set((s) => { s.ui.hover = id; }); },
     setHoverEdge(id: string | null) { if (get().ui.hoverEdge !== id) set((s) => { s.ui.hoverEdge = id; }); },
     setView(patch: Partial<ViewPrefs>) {
@@ -414,6 +426,8 @@ function createActions(set: Set, get: Get) {
     clearToast() { set((s) => { s.ui.toast = null; }); },
 
     /* ---------- runtime (driven by the ticker) ---------- */
+    recordSample(sample: Sample) { set((s) => { s.history = pushSample(s.history, sample); }); },
+    clearHistory() { set((s) => { s.history = []; }); },
     applyRuntime(runtime: Runtime, events: ScaleEvent[]) {
       set((s) => {
         s.runtime = runtime;
@@ -744,6 +758,7 @@ export const useEditorStore = create<EditorState>()(
     ui: initialUi,
     runtime: EMPTY_RUNTIME,
     events: [],
+    history: [],
     past: [],
     future: [],
     actions: createActions(set, get),
