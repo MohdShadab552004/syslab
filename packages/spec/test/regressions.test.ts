@@ -54,7 +54,7 @@ describe('regressions', () => {
     }));
     const r = simulationReport(doc, { seconds: 3 });
     expect(r.errorRatePercent).toBeGreaterThan(50);
-    expect(r.text).toMatch(/Latency only counts answered requests: \d+% were rejected instantly by an open circuit breaker\./);
+    expect(r.text).toMatch(/Latency only counts answered requests: \d+% failed fast \(an open circuit breaker, or a ring without enough live replicas\)\./);
   });
 });
 

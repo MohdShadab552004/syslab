@@ -3,7 +3,7 @@ import {
   CACHE_HIT, DB_REPLICA_SCALE, DOWN_COLORS, GROUP_COLORS, HOT_COLORS, ICONS, KINDS, REPLICA_COLORS, SIZES,
   LB_ALGOS, QUEUE_MAX, crowd, fmtCompact, isOver, dbConfig, dbLayout, fmtInt, instancePositions, isBalancer, isDbCluster, isFanned, isHorizontalAuto,
   isVerticalAuto, lbConfig, nodeScale, segment, type Point, type SimResult,
-  RING_MAX_SHOWN, isRingDb, ringConfig, ringLayout,
+  RING_MAX_SHOWN, WIDE_PARTITION_MB, effectivePartitionMb, isRingDb, ringConfig, ringLayout, ringNodeLoads, staleReadShare,
 } from '@syslab/sim';
 import type { FlowPlayback, JourneyPlayback, Marquee, Pick, Selection, Tool } from '@/types/editor';
 import { canRewire, type Rewire } from '@/hooks/editor/editor.store';
@@ -689,22 +689,36 @@ function buildNode(
   if (n.kind === 'db' && isRingDb(n)) {
     // Leaderless ring: the database in the middle is the coordinator the callers talk to; its
     // nodes sit around it, the first `down` of them failed.
-    const r = sim.ring?.[n.id] ?? { ...ringConfig(n), unavailable: 0 };
+    const cfg = ringConfig(n);
+    const r = sim.ring?.[n.id] ?? { ...cfg, ...ringNodeLoads(cfg, 1, 0.9, 0), unavailable: 0, stale: staleReadShare(cfg.rf, cfg.k, cfg.kw) };
     const pts = ringLayout(n), node = loadPill(sim.dbLoad[n.id]?.w ?? ld, n.down);
+    const live = r.nodes - r.down, skewed = r.hot > 0 && r.hotNodes < live;
+    const hotPill = loadPill(r.hotLoad, n.down), coldPill = loadPill(r.coldLoad, n.down);
     load = node;
-    below = `${n.label} · ring of ${r.nodes} · RF ${r.rf} · ${r.cl.toUpperCase()}`;
+    const CL = r.cl === r.wcl ? r.cl.toUpperCase() : `R ${r.cl.toUpperCase()} / W ${r.wcl.toUpperCase()}`;
+    below = `${n.label} · ring of ${r.nodes} · RF ${r.rf} · ${CL}`;
     pts.forEach((p, i) => {
+      // failed nodes first, then the hot key's replicas (next to each other, like SimpleStrategy)
       const dead = n.down || i < r.down;
+      const pill = dead ? loadPill(0, true) : skewed ? (i < r.down + r.hotNodes ? hotPill : coldPill) : node;
       extras.push({
         key: `${n.id}-n${i}`, dx: p.x - p0.x, dy: p.y - p0.y, shape: 'db', w: k.w, h: k.h, scale: RING_NODE_SCALE,
-        colors: dead ? DOWN_COLORS : colors, icon: ICONS.db, label: '', bands: false, load: dead ? loadPill(0, true) : node,
+        colors: dead ? DOWN_COLORS : repColors(pill), icon: ICONS.db, label: '', bands: false, load: pill,
         below: i === 0 && r.nodes > RING_MAX_SHOWN ? { text: `+${r.nodes - RING_MAX_SHOWN} more nodes`, info: true } : null, draining: false,
       });
     });
-    if (!n.down && r.down > 0) {
+    const pct = (v: number) => `${Math.max(1, Math.round(v * 100))}%`;
+    const mb = effectivePartitionMb(r);
+    if (n.down) { /* the offline warning stays */ } else if (r.down > 0) {
       warn = r.unavailable > 0
-        ? `${r.down} of ${r.nodes} nodes down · ${Math.max(1, Math.round(r.unavailable * 100))}% of rows below ${r.cl.toUpperCase()}`
-        : `${r.down} of ${r.nodes} nodes down · still ${r.cl.toUpperCase()}`;
+        ? `${r.down} of ${r.nodes} nodes down · ${pct(r.unavailable)} of requests below ${CL}`
+        : `${r.down} of ${r.nodes} nodes down · still ${CL}`;
+    } else if (skewed && r.hotLoad > r.coldLoad * 1.5) {
+      warn = `hot partition · ${r.hotNodes} of ${live} nodes at ${pct(r.hotLoad)}, the rest ${pct(r.coldLoad)}`;
+    } else if (mb > WIDE_PARTITION_MB) {
+      warn = `wide partitions · ${Math.round(mb)} MB (keep under ${WIDE_PARTITION_MB} MB)`;
+    } else if (r.stale > 0) {
+      warn = `R + W ≤ RF · up to ${pct(r.stale)} of fresh reads stale`;
     }
   } else if (n.kind === 'db') {
     const D = dbConfig(n);

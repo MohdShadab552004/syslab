@@ -92,7 +92,7 @@
       "Presence": 0.045,
       "Message Bus": 0.018,
       "Fan-out Worker": 0.469,
-      "Messages DB": 0.156
+      "Messages DB": 0.157
     }
   },
   "ecom@0.5x": {

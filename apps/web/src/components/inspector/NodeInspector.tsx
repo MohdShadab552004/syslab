@@ -135,10 +135,30 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
           <div className="row"><SectionLabel>Ring cluster</SectionLabel><span className={v.db.ring.status.bad ? 'v bad' : 'v'}>{v.db.ring.status.text}</span></div>
           <div className="row"><span className="k">Nodes</span><Stepper label="nodes in the ring" {...v.db.ring.nodes} /></div>
           <div className="row"><span className="k">Replication factor</span><Stepper label="replication factor" {...v.db.ring.rf} /></div>
-          <div className="flab">Consistency level</div>
-          <OptionGroup layout="grid" options={v.db.ring.consistency} />
+          <div className="flab">Read consistency</div>
+          <OptionGroup layout="grid" options={v.db.ring.readCl} />
+          <div className="flab">Write consistency</div>
+          <OptionGroup layout="grid" options={v.db.ring.writeCl} />
+          <Row label="R + W vs RF" value={v.db.ring.consistency.text} bad={v.db.ring.consistency.bad} />
           <div className="row"><span className="k">Failed nodes</span><Stepper label="failed nodes" {...v.db.ring.down} /></div>
           <Hint>{v.db.ring.hint}</Hint>
+        </Card>
+      )}
+
+      {v.db?.ring && (
+        <Card>
+          <SectionLabel>Partitions &amp; load</SectionLabel>
+          <div className="row"><span className="k">Hot key share</span><Stepper label="traffic on the hottest partition key" {...v.db.ring.hotShare} /></div>
+          <div className="row"><span className="k">Key buckets</span><Stepper label="buckets the hot key is salted into" {...v.db.ring.buckets} /></div>
+          <div className="row"><span className="k">Partition size</span><Stepper label="average partition size" {...v.db.ring.partitionMb} /></div>
+          <div className="row"><span className="k">Speculative retry</span><Switch on={v.db.ring.specRetry.on} onToggle={v.db.ring.specRetry.onToggle} label="Toggle speculative retry" /></div>
+          <div className="flab">Busiest node (tpstats)</div>
+          <div className="tpsrow head"><span>Pool</span><span>Ops</span><span>Pending</span><span>Dropped</span></div>
+          {v.db.ring.stages.map((st) => (
+            <div key={st.name} className={st.bad ? 'tpsrow bad' : 'tpsrow'}><span>{st.name}</span><span>{st.ops}</span><span>{st.pending}</span><span>{st.dropped}</span></div>
+          ))}
+          {v.db.ring.errors.map((e) => <Row key={e.label} label={e.label} value={e.value} bad={e.bad} />)}
+          <Hint>{v.db.ring.loadHint}</Hint>
         </Card>
       )}
 

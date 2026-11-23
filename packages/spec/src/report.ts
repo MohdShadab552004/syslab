@@ -1,5 +1,5 @@
 import type { DesignDoc } from '@syslab/types';
-import { CACHE_HIT, EMPTY_RUNTIME, LB_ALGOS, cacheConfig, costBreakdown, OVERLOAD, fmtCompact, fmtMoney, fmtMs, lbConfig, simulate, stepRuntime, type Runtime, type SimResult } from '@syslab/sim';
+import { CACHE_HIT, EMPTY_RUNTIME, LB_ALGOS, cacheConfig, costBreakdown, OVERLOAD, fmtCompact, fmtMoney, fmtMs, lbConfig, simulate, stepRuntime, type Runtime, type SimResult, WIDE_PARTITION_MB, effectivePartitionMb, readPenalty, toleratedFailures } from '@syslab/sim';
 
 export interface SimulationReport {
   users: number;
@@ -105,11 +105,19 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
   }
   for (const n of d.nodes) {
     const r = sim.ring?.[n.id];
-    if (r && r.down > 0) {
+    if (!r) continue;
+    const pct = (v: number) => `${Math.max(1, Math.round(v * 100))}%`;
+    if (r.down > 0) {
       issues.push(r.unavailable > 0
-        ? `${n.label}: ${r.down} of ${r.nodes} nodes down, so ${Math.max(1, Math.round(r.unavailable * 100))}% of rows can't reach ${r.cl.toUpperCase()} (RF ${r.rf} tolerates ${r.rf - r.k}). Bring nodes back, lower the consistency level or raise the replication factor.`
+        ? `${n.label}: ${r.down} of ${r.nodes} nodes down, so ${pct(r.unavailable)} of requests can't reach their consistency level (RF ${r.rf} tolerates ${toleratedFailures(r)}) and fail at once (UnavailableException). Bring nodes back, lower the consistency level or raise the replication factor.`
         : `${n.label}: ${r.down} of ${r.nodes} nodes down; every row still reaches ${r.cl.toUpperCase()} (RF ${r.rf}).`);
     }
+    if (r.hot > 0 && r.hotNodes < r.nodes - r.down && r.hotLoad > r.coldLoad * 1.5) {
+      issues.push(`${n.label}: hot partition. ${Math.round(r.hot * 100)}% of traffic hits one key, so its ${r.hotNodes} replica nodes run at ${pct(r.hotLoad)} while the rest run at ${pct(r.coldLoad)}${r.drop > 0 ? ` and drop ${pct(r.drop)} of operations (timeouts)` : ''}. Salt the key into buckets (database.keyBuckets).`);
+    }
+    const mb = effectivePartitionMb(r);
+    if (mb > WIDE_PARTITION_MB) issues.push(`${n.label}: partitions of ${Math.round(mb)} MB make every read ${readPenalty(r).toFixed(1)}× dearer and slow compaction and repair. Keep them under ${WIDE_PARTITION_MB} MB (bucket the key).`);
+    if (r.stale > 0) issues.push(`${n.label}: reads at ${r.cl.toUpperCase()} (${r.k}) + writes at ${r.wcl.toUpperCase()} (${r.kw}) ≤ RF ${r.rf}, so up to ${pct(r.stale)} of reads right after a write miss it. Raise either level until R + W > RF.`);
   }
   for (const e of d.edges) {
     const from = name(e.from), to = name(e.to);
@@ -122,7 +130,7 @@ export function simulationReport(doc: DesignDoc, opts: { users?: number; spike?:
   const mean = sim.rps > 0 ? Math.round(sim.meanLatency) : null;
   const lines = [
     `Traffic: ${fmtCompact(sim.users)} concurrent users${(opts.spike ?? 1) > 1 ? ` (spike ×${opts.spike})` : ''} → ${fmtCompact(sim.rps)} requests/s.`,
-    `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.${p95 == null ? '' : ` (mean ${fmtMs(mean!)}, P99 ${fmtMs(p99!)})`}${sim.fastFailRate > 0.05 ? ` Latency only counts answered requests: ${Math.round(sim.fastFailRate * 100)}% were rejected instantly by an open circuit breaker.` : ''}`,
+    `P95 latency: ${p95 == null ? '— (no traffic)' : fmtMs(p95)} vs target ${slo} ms → ${p95 == null || p95 <= slo ? 'OK' : 'TOO SLOW'}.${p95 == null ? '' : ` (mean ${fmtMs(mean!)}, P99 ${fmtMs(p99!)})`}${sim.fastFailRate > 0.05 ? ` Latency only counts answered requests: ${Math.round(sim.fastFailRate * 100)}% failed fast (an open circuit breaker, or a ring without enough live replicas).` : ''}`,
     `Errors: ${(sim.errorRate * 100).toFixed(1)}%. Cost: ${fmtMoney(sim.cost)}/month (${bill.source}).`,
     ...(cost.byCategory.length ? [`Cost by category: ${cost.byCategory.map((c) => `${c.category} ${fmtMoney(c.usd)}`).join(', ')}.`] : []),
     ...(cost.savings.length ? [`Ways to save (each estimated alone): ${cost.savings.slice(0, 3).map((s) => `${s.text} −${fmtMoney(s.usd)}/mo`).join('; ')}.`] : []),

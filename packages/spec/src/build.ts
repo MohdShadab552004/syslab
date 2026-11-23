@@ -43,6 +43,9 @@ function suggest(name: string, known: string[]): string {
  * Validate a spec and turn it into an editor document with ids, settings and a laid-out diagram.
  * Throws SpecError with every problem at once (not just the first) so the caller can fix them together.
  */
+/** database fields that only mean something on a ring database */
+const RING_FIELDS = ['nodes', 'replicationFactor', 'consistency', 'writeConsistency', 'failedNodes', 'hotKeyShare', 'keyBuckets', 'partitionMb', 'speculativeRetry'] as const;
+
 export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
   const parsed = DesignSpec.safeParse(input);
   if (!parsed.success) {
@@ -125,8 +128,8 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
     }
     if (c.database) {
       if (kind !== 'db') warnings.push(`database settings on "${c.name}" were ignored: it is not a db.`);
-      else if ((c.database.nodes != null || c.database.replicationFactor != null || c.database.consistency || c.database.failedNodes != null) && !isRingDb({ kind, tech: c.tech ?? '' })) {
-        warnings.push(`nodes / replicationFactor / consistency on "${c.name}" only apply to ring databases (tech "Cassandra"); they were ignored.`);
+      else if (RING_FIELDS.some((f) => c.database![f] != null) && !isRingDb({ kind, tech: c.tech ?? '' })) {
+        warnings.push(`${RING_FIELDS.filter((f) => c.database![f] != null).join(' / ')} on "${c.name}" only apply to ring databases (tech "Cassandra"); they were ignored.`);
       }
       if (kind === 'db') over.dbc = {
         ...(c.database.shards != null && { shards: c.database.shards }),
@@ -137,8 +140,13 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
         ...(c.database.maxConnections != null && { maxConn: c.database.maxConnections }),
         ...(c.database.nodes != null && { nodes: c.database.nodes }),
         ...(c.database.replicationFactor != null && { rf: c.database.replicationFactor }),
-        ...(c.database.consistency && { consistency: c.database.consistency }),
+        ...(c.database.consistency && { consistency: c.database.consistency, writeConsistency: c.database.consistency }),
+        ...(c.database.writeConsistency && { writeConsistency: c.database.writeConsistency }),
         ...(c.database.failedNodes != null && { downNodes: c.database.failedNodes }),
+        ...(c.database.hotKeyShare != null && { hotShare: c.database.hotKeyShare }),
+        ...(c.database.keyBuckets != null && { buckets: c.database.keyBuckets }),
+        ...(c.database.partitionMb != null && { partitionMb: c.database.partitionMb }),
+        ...(c.database.speculativeRetry != null && { specRetry: c.database.speculativeRetry }),
       };
     }
     if (c.loadBalancer) {
