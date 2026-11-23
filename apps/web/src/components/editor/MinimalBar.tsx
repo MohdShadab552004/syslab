@@ -9,7 +9,7 @@ interface Props {
   onToggleRun: () => void;
   onShare: () => void;
   onRestore: () => void;
-  /** the metrics cards, placed under the name pill */
+  /** the metrics cards, placed right after the name pill */
   metrics: ReactNode;
   /** the canvas toolbar, placed before the run controls */
   toolbar: ReactNode;
@@ -19,23 +19,21 @@ interface Props {
 const stop = (e: React.PointerEvent) => e.stopPropagation();
 
 /**
- * Top row while the UI is minimized: name pill (metrics under it) on the left, toolbar and run
- * controls on the right. When the canvas is too narrow the toolbar turns to icons, then toolbar +
- * run controls wrap to a second line together, right-aligned.
+ * One top row while the UI is minimized: name pill, metrics, toolbar and run controls side by side.
+ * When the canvas is too narrow the toolbar turns to icons, then toolbar + run controls wrap to a
+ * second line together, right-aligned.
  */
 export const MinimalBar = memo(function MinimalBar(p: Props) {
   return (
     <div className="minirow">
-      <div className="ministart">
-        <div className="minibar left" onPointerDown={stop}>
-          <Link href="/designs" className="minibtn" aria-label="My designs" title="My designs"><Icon path={ICON.chevronLeft} size={14} stroke={2.4} /></Link>
-          <span className="mininame" title={p.name}>{p.name}</span>
-          <button type="button" className="minibtn" onClick={p.onRestore} aria-label="Show panels" title="Show panels (Ctrl+Shift+\)">
-            <Icon path={ICON.panels} size={15} stroke={2} />
-          </button>
-        </div>
-        {p.metrics}
+      <div className="minibar left" onPointerDown={stop}>
+        <Link href="/designs" className="minibtn" aria-label="My designs" title="My designs"><Icon path={ICON.chevronLeft} size={14} stroke={2.4} /></Link>
+        <span className="mininame" title={p.name}>{p.name}</span>
+        <button type="button" className="minibtn" onClick={p.onRestore} aria-label="Show panels" title="Show panels (Ctrl+Shift+\)">
+          <Icon path={ICON.panels} size={15} stroke={2} />
+        </button>
       </div>
+      {p.metrics}
       <div className="miniend">
         {p.toolbar}
         <div className="minibar right" onPointerDown={stop}>
