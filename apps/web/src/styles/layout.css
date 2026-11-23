@@ -100,7 +100,11 @@
   .editor .connhint, .editor .recbar { top: 124px; left: 8px; right: 8px; }
   .editor .recbar { flex-wrap: wrap; }
   .editor .events { bottom: 64px; left: 12px; }
-  .zoombar { right: 10px; bottom: 10px; }
+  /* compact zoom bar, same height (34px) and bottom gap (12px) as the Add / Design buttons */
+  .editor .zoombar { right: 12px; bottom: 12px; padding: 3px; gap: 0; border-radius: 10px; }
+  .editor .zoombar button { min-width: 26px; height: 26px; padding: 0 4px; }
+  .editor .zoombar .zpct { min-width: 38px; }
+  .editor .zoombar .zsep { margin: 0 1px; }
 
   /* bottom bars */
   .timeline.compact { padding: 0 10px; gap: 8px; }

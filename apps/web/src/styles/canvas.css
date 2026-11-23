@@ -16,6 +16,11 @@
   .toolbar .btn:not(.keep) { font-size: 0; gap: 0; padding: 0 8px; }
   .toolbar .btn:not(.keep)::after { font-size: 11px; }
 }
+/* phones: Spike and View menus show icon + caret only, so the whole toolbar fits (Clear included) */
+@container hud (max-width: 480px) {
+  .toolbar .btn.keep { font-size: 0; gap: 2px; padding: 0 7px; }
+  .toolbar .btn.keep::after { font-size: 11px; }
+}
 .hud > * { pointer-events: auto; }
 .hud .empty { position: absolute; left: 50%; top: 48%; transform: translate(-50%, -50%); pointer-events: none; }
 .zoombar { position: absolute; right: 16px; bottom: 16px; z-index: 30; display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 2px 0 var(--line); }
