@@ -122,6 +122,36 @@ the extra connections are refused and that share of queries fails. To fix it:
 
 MongoDB, Cassandra and DynamoDB have no such small cap.
 
+## 7. Cost (AWS list prices)
+
+[`pricing.ts`](../packages/sim/src/pricing.ts) prices every component the way AWS bills it: us-east-1 on-demand list prices,
+rounded. A real quote comes from the AWS Pricing Calculator; these are realistic orders of magnitude.
+
+| Component | Billed as |
+|---|---|
+| App, worker | EC2 per instance: 2 vCPU c6i.large, 8 m6i.2xlarge, 16 m6i.4xlarge, 64 m6i.16xlarge, 192 m7i.48xlarge |
+| Cache | ElastiCache node (×1.55 the EC2 price; Valkey ×1.24) |
+| Database | RDS (Postgres, MySQL ×1.78), DocumentDB (MongoDB ×1.8) or self-managed EC2, per shard × (1 + replicas), plus storage; DynamoDB per million reads / writes |
+| Object storage | S3 GB-month + GET / PUT requests |
+| CDN | CloudFront GB out (tiered) + HTTPS requests |
+| Load balancer | ALB hour + LCUs, or an Nginx / HAProxy pair on EC2 |
+| API gateway | API Gateway per million requests, or self-hosted on EC2 |
+| Queue | MSK brokers (Kafka), SQS requests, ElastiCache (BullMQ) or a self-hosted cluster |
+| External APIs | SES per email, SMS per message; payments are billed on revenue |
+| Internet egress | Responses served by the origin (not the CDN), tiered per GB |
+
+Usage-based prices follow the live traffic and three sizes in the requirements (API reply KB, CDN file KB,
+GB per database server). The Metrics tab lists the biggest line items and standard ways to save:
+Spot for queue workers, Savings Plans and reserved databases, Graviton, and one size smaller for
+machines with traffic but under 25% busy. Each is estimated on its own; they overlap.
+
+## 8. Over time (Metrics tab)
+
+The editor records one sample per second while the simulation runs (the last 5 minutes). It tracks
+throughput (answered vs. offered), P95 / P99 against the SLO, errors, running instances, queue backlog
+and cost, with ticks for autoscaling events, plus each component's load and latency. `simulate_design`
+returns the same as a `timeline` (one point every 5 seconds) together with a `cost` breakdown.
+
 ## Tests
 
 ```powershell
@@ -141,4 +171,4 @@ pnpm test
 - Steady state per second, not single requests: bursts shorter than a second are averaged out.
 - Service times use a fixed tail shape; real servers can have heavier tails (GC pauses, disk).
 - Memory, network bandwidth, disk IOPS and storage growth are not modelled yet.
-- Prices are list prices of generic machines, not a specific cloud's catalog.
+- Prices are AWS us-east-1 list prices only (no other clouds or regions yet, no free tiers except egress).

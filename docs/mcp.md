@@ -62,10 +62,11 @@ Realism fields (all optional):
 | `database.maxConnections` | db | Client connections per server (10000 ≈ a pooler like PgBouncer) |
 | `cache.ttlSeconds` | cache | How long keys live if the database behind it goes down |
 | `queue.mode` | queue | `pubsub` (every subscriber gets every message; Kafka default) or `work` (workers share messages) |
+| `avgResponseKb`, `avgFileKb`, `storageGb` | design | Sizes that drive the cost: API reply size, CDN file size, data per database server |
 | `callsPerRequest` | connection | Fan-out: every request makes this many calls here (instead of splitting traffic) |
 | `retries`, `circuitBreaker` | connection | Failure handling; retries can cause retry storms |
 
-`simulate_design` reports mean / P95 / P99 latency, per-component load and latency, and issues such as
+`simulate_design` reports a `timeline` (one point every 5 s), a `cost` breakdown at AWS list prices with ways to save, mean / P95 / P99 latency, per-component load and latency, and issues such as
 connection limits, retry storms and open breakers. How the numbers are computed: [simulation.md](simulation.md).
 
 Kinds: `users, cdn, lb, gateway, app, worker, cache, db, store, queue, ext`. The full schema with a

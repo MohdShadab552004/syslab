@@ -4,6 +4,7 @@ import { autoscale, dbConfig, lbConfig, queueConfig } from './factory';
 import { balance, type Backend } from './balancer';
 import { SERVICE_P95, SERVICE_P99, queueTimes, workersFor } from './queueing';
 import { techProfile } from './techs';
+import { egressCost, priceNode, sizesOf, type NodePrice } from './pricing';
 
 /** Mutable runtime state that lives on the client, never persisted. */
 export interface Runtime {
@@ -113,7 +114,12 @@ export interface SimResult {
   retryAmp: Record<string, number>;
   /** edges whose circuit breaker is open (calls fail fast) */
   breakerOpen: Record<string, boolean>;
+  /** monthly price of each component (AWS list prices, see pricing.ts) */
   nodeCost: Record<string, number>;
+  /** how each component's price is made (service, instance type, category) */
+  nodeCostDetail: Record<string, NodePrice>;
+  /** internet data transfer for responses served from the origin */
+  egress: { monthly: number; gb: number };
   /** mean latency a request spends in this node (service + waiting), ms */
   nodeLatency: Record<string, number>;
   onSlowPath: Record<string, boolean>;
@@ -482,16 +488,20 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     }
   }
 
-  const nodeCost: Record<string, number> = {};
+  // Monthly bill at AWS list prices: instances for sized components, usage for the rest
+  // (requests, GB out, brokers), plus internet data transfer for what the origin serves.
+  const nodeCost: Record<string, number> = {}, nodeCostDetail: Record<string, NodePrice> = {};
+  const sz = sizesOf(doc);
   let cost = 0;
   for (const n of nodes) {
-    const k = KINDS[n.kind];
-    const D = n.kind === 'db' ? dbConfig(n) : null;
-    const unit = k.perCpu ? SIZES[sizeIdx[n.id]].cost * (k.costMul ?? 1) : (k.fixed ?? 0);
-    const c = unit * reps[n.id] * (D ? D.shards * (1 + D.replicas) : 1);
-    nodeCost[n.id] = c;
-    cost += c;
+    const p = priceNode(n, { rps: n.kind === 'users' ? 0 : inflow[n.id] ?? 0, sizeIdx: sizeIdx[n.id], reps: reps[n.id], read, ...sz });
+    nodeCostDetail[n.id] = p;
+    nodeCost[n.id] = p.monthly;
+    cost += p.monthly;
   }
+  const originRps = edges.reduce((s, e) => s + (byId.get(e.from)?.kind === 'users' && byId.get(e.to)?.kind !== 'cdn' ? edgeRps[e.id] ?? 0 : 0), 0);
+  const egress = egressCost(originRps, sz.respKb);
+  cost += egress.monthly;
 
   // User-facing errors, bottom-up: the share of requests arriving at a node that end up failing.
   // A request fails if this node drops it, or if a call it needs fails. Fan-out calls must all
@@ -585,7 +595,7 @@ export function simulate(doc: DesignDoc, rt: Runtime = EMPTY_RUNTIME): SimResult
     users, rps, byId, inflow, cap, load, edgeRps, reps, sizeIdx, desiredReps, desiredSize,
     needsLB, dbLoad, repLoad, edgeRepRps, lbBackends, queue, cacheBypass, cacheRefill, cacheHit,
     perInstance: per, service, workers, waitMs, dropFrac, dbConns, retryAmp, breakerOpen,
-    nodeCost, nodeLatency, onSlowPath, errorRate, fastFailRate, meanLatency, p95, p99, cost,
+    nodeCost, nodeCostDetail, egress, nodeLatency, onSlowPath, errorRate, fastFailRate, meanLatency, p95, p99, cost,
   };
 }
 

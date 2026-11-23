@@ -34,6 +34,9 @@ export function docToSpec(name: string, doc: DesignDoc): DesignSpecInput {
     dailyActiveUsers: r.dau,
     readPercent: r.read,
     latencyTargetMs: r.slo,
+    ...(r.respKb != null && { avgResponseKb: r.respKb }),
+    ...(r.assetKb != null && { avgFileKb: r.assetKb }),
+    ...(r.storageGb != null && { storageGb: r.storageGb }),
     components: doc.nodes.map((n) => {
       const k = KINDS[n.kind];
       const as = { ...DEFAULT_AUTOSCALE, ...n.autoscale };

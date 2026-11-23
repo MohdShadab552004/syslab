@@ -65,6 +65,12 @@ export function RequirementsCard({ r, s }: { r: RequirementsView; s: Summary }) 
         <NumberField small label="P95 target (ms)" min={10} step={10} value={r.slo} onValue={r.onSlo} />
         <TextField small label="Data size" value={r.dataNote} onValue={r.onDataNote} placeholder="e.g. 2 TB / yr" />
       </div>
+      <div className="flab">Sizes used for the cost</div>
+      <div className="segs three">
+        <NumberField small label="API reply (KB)" min={0.1} step={1} value={r.respKb} onValue={r.onRespKb} />
+        <NumberField small label="CDN file (KB)" min={1} step={10} value={r.assetKb} onValue={r.onAssetKb} />
+        <NumberField small label="Data / DB (GB)" min={1} step={50} value={r.storageGb} onValue={r.onStorageGb} />
+      </div>
       <Row label="Peak users" value={s.usersText} />
       <Row label="Requests / sec" value={s.rpsText} />
       <Row label="Bottleneck" value={s.bottleneck.text} bad={s.bottleneck.bad} />
