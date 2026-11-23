@@ -328,3 +328,6 @@
 .edge.repl.gossip .arrow { display: none; }
 .pkt.repl.gossip { width: 7px; height: 7px; top: -4.5px; background: #b8e3c9; border-color: #3f9b6b; }
 .lod-far .edge.repl.gossip { border-top-width: calc(1.5px * var(--lw)); }
+
+.journeybar .jclose { margin-left: auto; width: 26px; height: 26px; flex: none; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.journeybar .jclose:hover { background: var(--surface-2); color: var(--ink); }

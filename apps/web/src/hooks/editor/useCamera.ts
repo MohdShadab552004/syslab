@@ -14,6 +14,9 @@ const MIN_Z = 0.1;
 const MAX_Z = 4;
 const STEP = 1.25;
 const clampZ = (z: number) => Math.min(MAX_Z, Math.max(MIN_Z, z));
+/** a finger that moved less than this between down and up tapped instead of panning, px */
+export const TAP_SLOP = 8;
+export const isTap = (p: { sx: number; sy: number }, x: number, y: number) => Math.hypot(x - p.sx, y - p.sy) < TAP_SLOP;
 
 function isTyping(t: EventTarget | null) {
   const el = t as HTMLElement | null;
@@ -26,8 +29,11 @@ function isTyping(t: EventTarget | null) {
  * around the cursor, Space+drag or middle-mouse drag grabs the canvas.
  * Shortcuts: Ctrl +/- zoom, Ctrl 0 or Shift 0 = 100%, Shift 1 = fit to content.
  */
-export function useCamera() {
+export function useCamera(onTap?: () => void) {
   const stageRef = useRef<HTMLElement | null>(null);
+  /** called when one finger taps empty canvas (on touch screens one finger pans, so no click reaches the canvas) */
+  const tapRef = useRef(onTap);
+  tapRef.current = onTap;
   // callback ref: the stage mounts after the "Loading…" screen, so effects must re-run then
   const [stageEl, setStageEl] = useState<HTMLElement | null>(null);
   const setStage = useCallback((el: HTMLElement | null) => { stageRef.current = el; setStageEl(el); }, []);
@@ -216,6 +222,7 @@ export function useCamera() {
     e.stopPropagation();
     pan.current = null;
     setPanning(false);
+    if (e.pointerType === 'touch' && isTap(p, e.clientX, e.clientY)) tapRef.current?.();
   }, []);
 
   return useMemo(() => ({

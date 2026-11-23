@@ -47,7 +47,8 @@ export default function EditorPage() {
 
   const view = useCanvasView();
   const handlers = useCanvasInteractions();
-  const camera = useCamera();
+  const clearSelection = useEditorStore((s) => s.actions.clearSelection);
+  const camera = useCamera(clearSelection);
   const shortcuts = useEditorShortcuts();
   const mobile = useMobilePanel();
   const chrome = useEditorChrome();
