@@ -132,6 +132,8 @@
   .app.minimal .minirow { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 30; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; pointer-events: none; }
   .app.minimal .minirow > * { pointer-events: auto; }
   .app.minimal .minirow .metrics { position: static; pointer-events: none; }
+  .app.minimal .ministart { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; pointer-events: none; }
+  .app.minimal .ministart > * { pointer-events: auto; }
   .app.minimal .miniend { margin-left: auto; display: flex; align-items: flex-start; gap: 10px; pointer-events: none; }
   .app.minimal .miniend > * { pointer-events: auto; }
   .app.minimal .minirow .toolbar { position: static; }
@@ -148,12 +150,12 @@
 }
 
 /* Minimize UI row: tighten as the canvas narrows so it stays on one line as long as possible */
-@container hud (max-width: 1910px) {
+@container hud (max-width: 1530px) {
   .app.minimal .metric { min-width: 0; padding: 8px 10px; }
   .app.minimal .mval { font-size: 15px; }
   .app.minimal .minibar .stext { display: none; }
 }
-@container hud (max-width: 1640px) {
+@container hud (max-width: 1370px) {
   .app.minimal .toolbar .btn:not(.keep) { font-size: 0; gap: 0; padding: 0 8px; }
   .app.minimal .toolbar .btn:not(.keep)::after { font-size: 11px; }
 }
