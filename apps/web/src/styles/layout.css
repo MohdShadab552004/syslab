@@ -125,10 +125,10 @@
   .app.minimal, .app.minimal:has(.timeline.compact) { --top-h: 0px; --bottom-h: 0px; }
   .app.minimal .top, .app.minimal .palette, .app.minimal .inspector, .app.minimal .timeline { display: none; }
   /* one row: name pill, metrics, toolbar (pushed right), run controls; wraps when it cannot fit */
-  .app.minimal .minirow { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; pointer-events: none; }
+  .app.minimal .minirow { position: absolute; top: 14px; left: 16px; right: 16px; z-index: 30; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; pointer-events: none; }
   .app.minimal .minirow > * { pointer-events: auto; }
   .app.minimal .minirow .metrics { position: static; pointer-events: none; }
-  .app.minimal .miniend { margin-left: auto; display: flex; align-items: center; gap: 10px; pointer-events: none; }
+  .app.minimal .miniend { margin-left: auto; display: flex; align-items: flex-start; gap: 10px; pointer-events: none; }
   .app.minimal .miniend > * { pointer-events: auto; }
   .app.minimal .minirow .toolbar { position: static; }
   .app.minimal .minibar { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 8px; flex: none;
