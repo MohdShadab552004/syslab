@@ -40,10 +40,18 @@ describe('simulationReport: basics', () => {
     const l = lines(r.text);
     expect(l[0]).toBe('Traffic: 12k concurrent users → 720 requests/s.');
     expect(l[1]).toMatch(/^P95 latency: \d+ ms vs target 200 ms → OK\. \(mean \d+ ms, P99 \d+ ms\)$/);
-    expect(l[2]).toMatch(/^Errors: 0\.0%\. Cost: \$[\d,]+\/month\.$/);
-    expect(l[3]).toMatch(/^No component is overloaded; busiest is (API|DB) at \d+%\.$/);
-    expect(l[4]).toMatch(/^Per component: API 720 rps \d+%, DB 720 rps \d+%\.$/);
-    expect(l).toHaveLength(5);
+    expect(l[2]).toBe('Errors: 0.0%. Cost: $3,193/month (AWS us-east-1 on-demand list prices (approx.)).');
+    expect(l[3]).toBe('Cost by category: network $1,577, database $1,055, compute $561.');
+    expect(l[4]).toMatch(/^Ways to save \(each estimated alone\): 1-year reserved database instances \(~35% off\) −\$369\/mo; /);
+    expect(l[5]).toMatch(/^No component is overloaded; busiest is (API|DB) at \d+%\.$/);
+    expect(l[6]).toMatch(/^Per component: API 720 rps \d+%, DB 720 rps \d+%\.$/);
+    expect(l).toHaveLength(7);
+    expect(r.cost.totalUsd).toBe(3193);
+    expect(r.cost.topItems[0]).toEqual({ component: 'Data transfer out', usd: 1577, detail: '18,045 GB/month from origin to users' });
+    expect(r.timeline).toEqual([
+      { second: 0, requestsPerSecond: 720, p95Ms: r.p95Ms, errorRatePercent: 0, instances: 1, queueBacklog: 0, monthlyCostUsd: 3193 },
+      { second: 60, requestsPerSecond: 720, p95Ms: r.p95Ms, errorRatePercent: 0, instances: 1, queueBacklog: 0, monthlyCostUsd: 3193 },
+    ]);
   });
 
   test('no traffic: zero users', () => {
@@ -57,7 +65,9 @@ describe('simulationReport: basics', () => {
     expect(lines(r.text)).toEqual([
       'Traffic: 0 concurrent users → 0 requests/s.',
       'P95 latency: — (no traffic) vs target 200 ms → OK.',
-      'Errors: 0.0%. Cost: $1,440/month.',
+      'Errors: 0.0%. Cost: $1,616/month (AWS us-east-1 on-demand list prices (approx.)).',
+      'Cost by category: database $1,055, compute $561.',
+      'Ways to save (each estimated alone): 1-year reserved database instances (~35% off) −$369/mo; 1-year Compute Savings Plan for always-on services (~28% off EC2) −$157/mo; Move services, workers and caches to Graviton (arm64, ~20% cheaper per instance) −$112/mo.',
       'No traffic, so nothing is loaded.',
     ]);
   });
@@ -230,8 +240,27 @@ describe('simulationReport: time', () => {
     expect(none.queues[0]).toEqual({ component: 'Q', mode: 'work', subscribers: [], waitingMessages: 0, changePerSecond: expect.any(Number) });
   });
 
-  test('a steady design stops early (nothing changes)', () => {
-    expect(simulationReport(simple(), { seconds: 300 })).toEqual(simulationReport(simple(), { seconds: 1 }));
+  test('a steady design stops early (nothing changes); the timeline still ends at the asked second', () => {
+    const { timeline: long, ...a } = simulationReport(simple(), { seconds: 300 });
+    const { timeline: short, ...b } = simulationReport(simple(), { seconds: 1 });
+    expect(a).toEqual(b);
+    expect(long.map((p) => p.second)).toEqual([0, 300]);
+    expect(short.map((p) => p.second)).toEqual([0, 1]);
+  });
+
+  test('the timeline takes a point every 5 seconds while things change', () => {
+    const r = simulationReport(docOf({
+      users: 100_000,
+      components: [c('Users', 'users'), c('API', 'app', { size: '192vCPU' }), c('Q', 'queue', { queue: { mode: 'work' } }), c('W', 'worker', { size: '2vCPU', autoscale: { min: 1, max: 50 } })],
+      connections: [{ from: 'Users', to: 'API' }, { from: 'API', to: 'Q', async: true }, { from: 'Q', to: 'W', async: true }],
+    }), { seconds: 12 });
+    expect(r.timeline.map((p) => p.second)).toEqual([0, 5, 10, 12]);
+    expect(r.timeline[1].instances).toBeGreaterThan(r.timeline[0].instances);
+    expect(r.timeline.every((p) => p.monthlyCostUsd > 0)).toBe(true);
+  });
+
+  test('no seconds: one point', () => {
+    expect(simulationReport(simple(), { seconds: 0 }).timeline.map((p) => p.second)).toEqual([0]);
   });
 });
 

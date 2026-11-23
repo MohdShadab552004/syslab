@@ -63,6 +63,7 @@ export function useEditorChrome() {
     tabs: [
       { key: 'inspect', label: 'Inspect', active: tab === 'inspect', onSelect: () => a.setTab('inspect') },
       { key: 'flows', label: `Flows · ${flowCount}`, active: tab === 'flows', onSelect: () => a.setTab('flows') },
+      { key: 'metrics', label: 'Metrics', active: tab === 'metrics', onSelect: () => a.setTab('metrics') },
       { key: 'versions', label: 'Versions', active: tab === 'versions', onSelect: () => a.setTab('versions') },
     ],
     tab,

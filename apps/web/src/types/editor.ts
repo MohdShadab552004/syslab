@@ -1,6 +1,6 @@
 /** UI-only editor types shared by hooks, lib and components. */
 export type Tool = 'select' | 'connect';
-export type InspectorTab = 'inspect' | 'flows' | 'versions';
+export type InspectorTab = 'inspect' | 'flows' | 'metrics' | 'versions';
 export type Selection = { type: 'node' | 'edge' | 'group' | 'note'; id: string } | null;
 /** One item in a multi-selection (connections are never multi-selected; they follow their nodes). */
 export interface Pick { type: 'node' | 'group' | 'note'; id: string }

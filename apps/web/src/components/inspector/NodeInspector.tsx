@@ -1,5 +1,6 @@
 import { Button, Card, Hint, ICON, Icon, LoadBar, OptionGroup, Row, SectionLabel, SelectField, Stepper, Switch, TextField } from '@/components/ui';
 import type { NodeInspectorView } from '@/hooks/editor/useInspector';
+import { Spark } from './Spark';
 
 export function NodeInspector({ v }: { v: NodeInspectorView }) {
   return (
@@ -178,6 +179,14 @@ export function NodeInspector({ v }: { v: NodeInspectorView }) {
           {v.db && <><Row label="Write load (primary)" value={v.db.writeLoad} /><Row label="Read load (each reader)" value={v.db.readLoad} /></>}
           <Row label="Added latency" value={v.stats.latency} />
           <Row label="Cost / month" value={v.stats.cost} />
+          {v.stats.costDetail && <Hint>{v.stats.costDetail}</Hint>}
+          {v.stats.trend && (
+            <div className="trend">
+              <div className="flab">Last 2 minutes</div>
+              <Spark label="Load" points={v.stats.trend.load.map((x) => x * 100)} max={Math.max(100, ...v.stats.trend.load.map((x) => x * 110))} threshold={100} unit="%" height={34} />
+              <Spark label="Latency" points={v.stats.trend.latency} max={Math.max(1, ...v.stats.trend.latency) * 1.1} unit=" ms" height={34} />
+            </div>
+          )}
         </Card>
       )}
 

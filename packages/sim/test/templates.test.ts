@@ -92,7 +92,9 @@ describe('lessonStep', () => {
     for (const id of ['a', 'b', 'c', 'd']) expect(s4.load[id]).toBeCloseTo(7500 / 9600, 9);
     expect(s4.errorRate).toBe(0);
     for (const id of ['a', 'b', 'c', 'd']) expect(s5.load[id]).toBeCloseTo(600 / 9600, 9);
-    expect(s5.cost).toBe(s4.cost);
+    const servers = (s: typeof s4) => ['a', 'b', 'c', 'd'].reduce((t, id) => t + s.nodeCost[id], 0);
+    expect(servers(s5)).toBe(servers(s4));
+    expect(s5.cost).toBeLessThan(s4.cost); // less data transfer at night
   });
 
   test('step 6: the autoscaling group grows until the errors stop', () => {

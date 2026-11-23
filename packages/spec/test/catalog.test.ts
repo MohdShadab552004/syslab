@@ -48,7 +48,7 @@ describe('SIZE_TABLE', () => {
   test('one row per size with vCPU, RAM and cost', () => {
     expect(SIZE_TABLE.map((r) => r.size)).toEqual([...SIZE_VALUES]);
     SIZE_TABLE.forEach((r, i) => expect(r).toEqual({ size: SIZE_VALUES[i], vcpu: SIZES[i].cpu, ramGb: SIZES[i].ram, costPerMonthUsd: SIZES[i].cost }));
-    expect(SIZE_TABLE[2]).toEqual({ size: '16vCPU', vcpu: 16, ramGb: 64, costPerMonthUsd: 600 });
+    expect(SIZE_TABLE[2]).toEqual({ size: '16vCPU', vcpu: 16, ramGb: 64, costPerMonthUsd: 561 }); // m6i.4xlarge
   });
 });
 

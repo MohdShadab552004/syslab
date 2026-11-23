@@ -17,6 +17,7 @@ import {
 import type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool } from '@/types/editor';
 import { groupMembers } from '@/lib/canvas/groups';
 import { loadViewPrefs, saveViewPrefs, type ViewPrefs } from '@/lib/canvas/readability';
+import { pushSample, type Sample } from '@/lib/metrics/history';
 import { layout } from '@syslab/spec';
 export type { FlowPlayback, InspectorTab, JourneyPlayback, Marquee, Pick, SaveState, Selection, Toast, Tool };
 
@@ -64,6 +65,8 @@ export interface EditorState {
   ui: UiState;
   runtime: Runtime;
   events: ScaleEvent[];
+  /** the last few minutes of the running simulation, one sample per second (for the graphs) */
+  history: Sample[];
   /** undo / redo stacks of whole-doc snapshots (immutable, so cheap to keep) */
   past: DesignDoc[];
   future: DesignDoc[];
@@ -253,6 +256,7 @@ function createActions(set: Set, get: Get) {
         s.saveState = 'idle';
         s.ui = { ...initialUi };
         s.runtime = { ...EMPTY_RUNTIME, autoRep: {}, drain: {}, autoSize: {}, qDepth: {} };
+        s.history = [];
         s.events = [];
       });
     },
@@ -414,6 +418,8 @@ function createActions(set: Set, get: Get) {
     clearToast() { set((s) => { s.ui.toast = null; }); },
 
     /* ---------- runtime (driven by the ticker) ---------- */
+    recordSample(sample: Sample) { set((s) => { s.history = pushSample(s.history, sample); }); },
+    clearHistory() { set((s) => { s.history = []; }); },
     applyRuntime(runtime: Runtime, events: ScaleEvent[]) {
       set((s) => {
         s.runtime = runtime;
@@ -744,6 +750,7 @@ export const useEditorStore = create<EditorState>()(
     ui: initialUi,
     runtime: EMPTY_RUNTIME,
     events: [],
+    history: [],
     past: [],
     future: [],
     actions: createActions(set, get),

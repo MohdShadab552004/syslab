@@ -192,6 +192,9 @@ export function buildDesign(input: DesignSpecInput | unknown): BuildResult {
       dau,
       read: spec.readPercent ?? DEFAULT_REQUIREMENTS.read,
       slo: spec.latencyTargetMs ?? DEFAULT_REQUIREMENTS.slo,
+      ...(spec.avgResponseKb != null && { respKb: spec.avgResponseKb }),
+      ...(spec.avgFileKb != null && { assetKb: spec.avgFileKb }),
+      ...(spec.storageGb != null && { storageGb: spec.storageGb }),
     },
   });
   return { doc, name: spec.name, warnings };

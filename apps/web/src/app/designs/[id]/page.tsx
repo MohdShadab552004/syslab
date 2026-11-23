@@ -29,6 +29,8 @@ import { EdgeInspector } from '@/components/inspector/EdgeInspector';
 import { GroupInspector, HowToCard, MultiInspector, NoteInspector, RequirementsCard, SummaryCard, TrafficCard } from '@/components/inspector/SimpleInspectors';
 import { FlowsPanel } from '@/components/inspector/FlowsPanel';
 import { VersionsPanel } from '@/components/inspector/VersionsPanel';
+import { MetricsPanel } from '@/components/inspector/MetricsPanel';
+import { useMetricsPanel } from '@/hooks/editor/useMetricsPanel';
 import { EditorHeader } from '@/components/editor/EditorHeader';
 import { FlowPlayerBar, LessonTimeline } from '@/components/editor/BottomBars';
 import { ShareModal } from '@/components/editor/ShareModal';
@@ -59,6 +61,7 @@ export default function EditorPage() {
   const dragging = useEditorStore((s) => s.ui.dragging);
   const updateNote = useEditorStore((s) => s.actions.updateNote);
   const journeyBar = useJourneyBar(view?.journey ?? null);
+  const metricsPanel = useMetricsPanel();
 
   if (boot.error) return <div className="empty static center">Could not load this design: {boot.error.message}</div>;
   if (!boot.ready || !view || !metrics || !inspector || !player) return <div className="empty static center">Loading design…</div>;
@@ -104,6 +107,7 @@ export default function EditorPage() {
             </>
           )}
           {chrome.tab === 'flows' && <FlowsPanel items={flows.items} onNew={flows.onNew} />}
+          {chrome.tab === 'metrics' && metricsPanel && <MetricsPanel v={metricsPanel} />}
           {chrome.tab === 'versions' && <VersionsPanel items={versions.items} saveText={chrome.header.saveText} canSave={versions.canSave} onSave={versions.onSave} />}
         </aside>
         </Sheet>

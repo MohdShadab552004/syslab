@@ -3,12 +3,13 @@
 import { useMemo } from 'react';
 import type { DesignDoc, DesignEdge, DesignNode, EdgeOp, LbAlgorithm, PartitionStrategy, Protocol, ShardStrategy } from '@syslab/types';
 import {
-  CACHE_HIT, GROUP_COLORS, ICONS, KINDS, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
+  CACHE_HIT, DEFAULT_ASSET_KB, DEFAULT_RESP_KB, DEFAULT_STORAGE_GB, GROUP_COLORS, ICONS, KINDS, sizesOf, MAX_RETRIES, POOL_PER_INSTANCE, cacheConfig, queueConfig, capacityPerInstance, dbConnLimit, LB_ALGOS, SIZES, TECHS, dbConfig, serviceTime, techProfile, fmtCompact, fmtInt, fmtMoney, isHorizontalAuto,
   isOver, isVerticalAuto, lbConfig, QUEUE_MAX, type SimResult,
 } from '@syslab/sim';
 import { canRewire, useEditorStore, type EdgeEnd, type EditorActions } from './editor.store';
 import { groupMembers } from '@/lib/canvas/groups';
 import { useSimulation } from './useSimulation';
+import { nodeTrend, type Sample } from '@/lib/metrics/history';
 
 /* ---------- generic option model, rendered by <OptionGroup> ---------- */
 export interface OptionView { key: string; label: string; sub?: string; active: boolean; onSelect: () => void }
@@ -96,7 +97,7 @@ export interface NodeInspectorView {
     onPurge: (() => void) | null;
   } | null;
   replicas: StepperView | null;
-  stats: { incoming: string; capacity: string; load: LoadView; latency: string; cost: string } | null;
+  stats: { incoming: string; capacity: string; load: LoadView; latency: string; cost: string; costDetail: string; trend: { load: number[]; latency: number[] } | null } | null;
   connections: { key: string; text: string; onRemove: () => void }[];
   downLabel: string;
   onToggleDown: () => void;
@@ -140,6 +141,10 @@ export interface RequirementsView {
   read: number; readText: string; onRead: (v: number) => void;
   slo: number; onSlo: (v: number) => void;
   dataNote: string; onDataNote: (v: string) => void;
+  /** sizes that drive the cost: API response KB, CDN file KB, GB per database server */
+  respKb: number; onRespKb: (v: number) => void;
+  assetKb: number; onAssetKb: (v: number) => void;
+  storageGb: number; onStorageGb: (v: number) => void;
 }
 
 export interface TrafficView { slider: number; onSlider: (v: number) => void; presets: OptionView[] }
@@ -162,7 +167,7 @@ export interface MultiInspectorView {
 }
 
 /* ---------- builders ---------- */
-export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions): NodeInspectorView {
+export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: EditorActions, history?: Sample[]): NodeInspectorView {
   const k = KINDS[n.kind], id = n.id, ld = sim.load[id] ?? 0;
   const hot = !n.down && isOver(ld), busy = !n.down && ld >= 0.7;
   const auto = isHorizontalAuto(n), autoV = isVerticalAuto(n), as = n.autoscale;
@@ -395,6 +400,8 @@ export function nodeView(n: DesignNode, doc: DesignDoc, sim: SimResult, a: Edito
       load: loadView(ld, n.down),
       latency: k.async ? 'async' : `${Math.round(sim.nodeLatency[id] ?? k.lat)} ms`,
       cost: fmtMoney(sim.nodeCost[id] ?? 0),
+      costDetail: sim.nodeCostDetail?.[id]?.detail ?? '',
+      trend: history ? nodeTrend(history, id) : null,
     },
     connections,
     downLabel: n.down ? 'Bring online' : 'Take offline',
@@ -467,6 +474,7 @@ export function useInspector(): InspectorView | null {
   const multi = useEditorStore((s) => s.ui.multi);
   const a = useEditorStore((s) => s.actions);
   const sim = useSimulation();
+  const history = useEditorStore((s) => s.history);
 
   return useMemo<InspectorView | null>(() => {
     if (!doc || !sim) return null;
@@ -488,7 +496,7 @@ export function useInspector(): InspectorView | null {
     }
     if (sel?.type === 'node') {
       const n = doc.nodes.find((x) => x.id === sel.id);
-      if (n) return { kind: 'node', node: nodeView(n, doc, sim, a) };
+      if (n) return { kind: 'node', node: nodeView(n, doc, sim, a, history) };
     }
     if (sel?.type === 'edge') {
       const e = doc.edges.find((x) => x.id === sel.id);
@@ -517,6 +525,8 @@ export function useInspector(): InspectorView | null {
     if (sel?.type === 'note' && doc.notes.some((t) => t.id === sel.id)) return { kind: 'note', onDelete: () => a.deleteNote(sel.id) };
 
     const r = doc.requirements;
+
+    const sizes = sizesOf(doc);
     return {
       kind: 'none',
       lesson: !!doc.lesson,
@@ -527,6 +537,9 @@ export function useInspector(): InspectorView | null {
         read: r.read, readText: `${r.read}% reads · ${100 - r.read}% writes`, onRead: (v) => a.setRequirements({ read: v }),
         slo: r.slo, onSlo: (v) => a.setRequirements({ slo: Math.max(1, v || 1) }),
         dataNote: r.dataNote, onDataNote: (v) => a.setRequirements({ dataNote: v }),
+        respKb: sizes.respKb, onRespKb: (v) => a.setRequirements({ respKb: Math.max(0.1, v || DEFAULT_RESP_KB) }),
+        assetKb: sizes.assetKb, onAssetKb: (v) => a.setRequirements({ assetKb: Math.max(1, v || DEFAULT_ASSET_KB) }),
+        storageGb: sizes.storageGb, onStorageGb: (v) => a.setRequirements({ storageGb: Math.max(1, v || DEFAULT_STORAGE_GB) }),
       },
       traffic: {
         // log scale: 1K .. 10M users over 0..80
@@ -538,5 +551,5 @@ export function useInspector(): InspectorView | null {
         presets: opts(USER_PRESETS, doc.users, (u) => a.setUsers(u)),
       },
     };
-  }, [doc, sel, multi, sim, a]);
+  }, [doc, sel, multi, sim, a, history]);
 }

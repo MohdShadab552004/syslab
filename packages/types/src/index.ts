@@ -158,6 +158,12 @@ export interface Requirements {
   /** P95 latency target, ms */
   slo: number;
   dataNote: string;
+  /** average API response size, KB (internet egress, load balancer, Kafka throughput); default 10 */
+  respKb?: number;
+  /** average file served by the CDN, KB; default 100 */
+  assetKb?: number;
+  /** data kept per database server and in object storage, GB; default 500 */
+  storageGb?: number;
 }
 
 /** The full editable document. Stored as one JSON column. */
